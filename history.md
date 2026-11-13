@@ -602,3 +602,51 @@ Not verified, and why:
 
 Readback cost, for the record: +3 % of one core per seat at the title screen
 (13 % vs 10 % over 8 s), ~44 MB/s per seat at 57 fps.
+
+## 2026-11-13 (13) — touch reaches the game; the seat's layout was the bug
+
+**Verdict: a touch datagram to a seat's socket now moves the emulated 3DS's UI.
+It did not before — the coordinates were dropped one layer below the socket,
+because a headless seat has no window to size its touch layout from.**
+
+- **The bug**: `EmuWindow::TouchPressed` rejects any point outside
+  `framebuffer_layout.bottom_screen`, and that layout is derived from the
+  *window* size. A seat that only publishes frames has a 1x1 window, so every
+  forwarded touch failed `IsWithinTouchscreen` and returned false. Keys were
+  unaffected (they never consult the layout), which is exactly why HOME worked
+  while touch silently did nothing.
+- **The fix** (`bootmanager.cpp`, `PublishSharedFrame`): when the emulator's
+  layout differs from the frame geometry the viewer draws, call
+  `UpdateCurrentFramebufferLayout(layout.width, layout.height)`. Three lines; the
+  seat's touch layout now matches the frames it publishes.
+- **A second, viewer-side bug found by the same test**: the viewer mapped mouse
+  clicks to a hardcoded 400x480 and to the *tile* rect rather than the
+  letterboxed image rect, so a click could never land on the bottom screen (its
+  position depends on the seat's layout). Now `image_rect()` / `to_frame()`
+  derive both from the seat's own frame size.
+- **Verified from the seat's own ring frames**, seats A and B both parked at
+  MK7's title screen (inter-frame activity < 2/255, bottom menu lit):
+  - press + move + release at frame (440,195) — the bottom-screen "Single
+    Player" row — changed **only that row** on seat A (band diff 30.8; rows 2, 3
+    and the footer 0.00) while seat B's same band moved 1.95 from animation. The
+    point maps where intended and reaches only the addressed seat.
+  - a clean tap (down, 250 ms, up, no move) at the same point took seat A from
+    the title screen into a **single-player race**: change 165.9 within 0.4 s,
+    166.2 sustained, and 4 s later the frame is the race; seat B stayed at the
+    title throughout (change 0.01–0.04).
+- **Viewer click path**: a real click on the viewer's bottom-screen area against
+  a listener socket produced `touch down x=422 y=186` and `touch up`, 12 bytes
+  each — frame-space coordinates inside the bottom screen.
+- **The session still holds** after both fixes: `--start … --players 4` →
+  4 azahar + 1 room + 1 viewer, 4 rings, 4 sockets, exactly one `Azahar
+  Splitscreen` window in `wmctrl -l`, seat fps 60.0 (frame_ms 8.97 with the
+  readback); SIGTERM → 0 processes, 0 rings, 0 sockets, 0 windows.
+- **Known blocked check — presented fps.** `glxgears` on this display reports
+  1.0–1.8 FPS while nothing is composited, so any swap-paced loop reads ~1 Hz
+  regardless of our code (the viewer's own `paint_ms` is 0.3–1.3 ms: swap wait,
+  not work). This is an environment limitation, not a result. Rerun it once the
+  screen is compositing: `./run.sh` (then click Start) and
+  `tools/qa/monitor.sh report`, which now summarises the viewer's
+  `presented_fps` alongside each seat; or `./run.sh --start "<rom>" --players 4`
+  for a session without the picker. The native-Wayland run is the same test with
+  `AZAHAR_QT_PLATFORM=wayland` set.

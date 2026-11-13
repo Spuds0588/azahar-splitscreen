@@ -255,7 +255,8 @@ void Viewer::paintGL() {
         }
         grab_frame(seat);
 
-        QRect tile = tile_rect(i);
+        // Letterbox the console screen inside its cell.
+        const QRect tile = tile_rect(i);
         if (seat.fd < 0) {
             // No frames yet (still booting): a dim tile with a red border.
             program_.setUniformValue("u_solid", 1);
@@ -268,17 +269,7 @@ void Viewer::paintGL() {
             continue;
         }
 
-        // Letterbox the console screen inside its cell.
-        const float source_aspect =
-            static_cast<float>(seat.width) / static_cast<float>(std::max(seat.height, 1u));
-        QRect image = tile;
-        if (tile.width() * 1.0 / tile.height() > source_aspect) {
-            image.setWidth(static_cast<int>(tile.height() * source_aspect));
-            image.moveLeft(tile.x() + (tile.width() - image.width()) / 2);
-        } else {
-            image.setHeight(static_cast<int>(tile.width() / source_aspect));
-            image.moveTop(tile.y() + (tile.height() - image.height()) / 2);
-        }
+        const QRect image = image_rect(i);
 
         if (seat.tex == 0) {
             glGenTextures(1, &seat.tex);
@@ -423,6 +414,36 @@ void Viewer::keyReleaseEvent(QKeyEvent* event) {
     send_input(selected_, 2, static_cast<quint32>(event->key()), 0, 0);
 }
 
+/// Where a seat's frame is drawn inside its tile: the console screen keeps its
+/// aspect ratio and is centred.
+QRect Viewer::image_rect(int index) const {
+    const QRect tile = tile_rect(index);
+    const Seat& seat = seats_[index];
+    const float source_aspect =
+        static_cast<float>(seat.width) / static_cast<float>(std::max(seat.height, 1u));
+    QRect image = tile;
+    if (tile.width() * 1.0 / tile.height() > source_aspect) {
+        image.setWidth(static_cast<int>(tile.height() * source_aspect));
+        image.moveLeft(tile.x() + (tile.width() - image.width()) / 2);
+    } else {
+        image.setHeight(static_cast<int>(tile.width() / source_aspect));
+        image.moveTop(tile.y() + (tile.height() - image.height()) / 2);
+    }
+    return image;
+}
+
+/// Window position -> the seat's own frame coordinates, which is the space its
+/// touch handling expects (the seat maps those through its screen layout).
+QPoint Viewer::to_frame(const Seat& seat, const QRect& image, const QPoint& pos) const {
+    const float w = static_cast<float>(std::max(seat.width, 1u));
+    const float h = static_cast<float>(std::max(seat.height, 1u));
+    const int x = static_cast<int>(std::clamp(
+        (pos.x() - image.x()) * w / std::max(image.width(), 1), 0.0f, w - 1));
+    const int y = static_cast<int>(std::clamp(
+        (pos.y() - image.y()) * h / std::max(image.height(), 1), 0.0f, h - 1));
+    return {x, y};
+}
+
 void Viewer::mousePressEvent(QMouseEvent* event) {
     if (event->button() != Qt::LeftButton) {
         return;
@@ -434,28 +455,13 @@ void Viewer::mousePressEvent(QMouseEvent* event) {
         }
         selected_ = i;
         update();
-        const QRect tile = tile_rect(i);
         const Seat& seat = seats_[i];
-        if (seat.fd >= 0 && tile.contains(pos)) {
-            // Map the click into console screen coordinates.
-            const float source_aspect =
-                static_cast<float>(seat.width) / static_cast<float>(std::max(seat.height, 1u));
-            QRect image = tile;
-            if (tile.width() * 1.0 / tile.height() > source_aspect) {
-                image.setWidth(static_cast<int>(tile.height() * source_aspect));
-                image.moveLeft(tile.x() + (tile.width() - image.width()) / 2);
-            } else {
-                image.setHeight(static_cast<int>(tile.width() / source_aspect));
-                image.moveTop(tile.y() + (tile.height() - image.height()) / 2);
-            }
-            if (image.contains(pos)) {
-                const auto x = static_cast<quint16>(
-                    std::clamp((pos.x() - image.x()) * 400 / std::max(image.width(), 1), 0, 399));
-                const auto y = static_cast<quint16>(
-                    std::clamp((pos.y() - image.y()) * 480 / std::max(image.height(), 1), 0, 479));
-                dragging_ = true;
-                send_input(i, 3, 0, x, y);
-            }
+        const QRect image = image_rect(i);
+        if (seat.fd >= 0 && image.contains(pos)) {
+            const QPoint frame = to_frame(seat, image, pos);
+            dragging_ = true;
+            send_input(i, 3, 0, static_cast<quint16>(frame.x()),
+                       static_cast<quint16>(frame.y()));
         }
         return;
     }
@@ -466,13 +472,9 @@ void Viewer::mouseMoveEvent(QMouseEvent* event) {
         return;
     }
     const Seat& seat = seats_[selected_];
-    const QRect tile = tile_rect(selected_);
-    const QPoint pos = event->pos();
-    const auto x = static_cast<quint16>(
-        std::clamp((pos.x() - tile.x()) * 400 / std::max(tile.width(), 1), 0, 399));
-    const auto y = static_cast<quint16>(
-        std::clamp((pos.y() - tile.y()) * 480 / std::max(tile.height(), 1), 0, 479));
-    send_input(selected_, 4, 0, x, y);
+    const QPoint frame = to_frame(seat, image_rect(selected_), event->pos());
+    send_input(selected_, 4, 0, static_cast<quint16>(frame.x()),
+               static_cast<quint16>(frame.y()));
 }
 
 void Viewer::mouseReleaseEvent(QMouseEvent* event) {

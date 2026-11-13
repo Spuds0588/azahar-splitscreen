@@ -811,6 +811,14 @@ void GRenderWindow::PublishSharedFrame() {
     }
     const auto layout{Layout::FrameLayoutFromResolutionScale(
         renderer.GetResolutionScaleFactor(), is_secondary)};
+    // A headless seat has no window to size a layout from, but touch input is
+    // resolved against the window layout: without this every forwarded touch
+    // lands outside the touchscreen rect and is dropped. Bind it to the frame
+    // geometry the viewer actually draws.
+    const auto& window_layout = GetFramebufferLayout();
+    if (window_layout.width != layout.width || window_layout.height != layout.height) {
+        UpdateCurrentFramebufferLayout(layout.width, layout.height);
+    }
     u8* buffer = shm_frame->BeginFrame(layout.width, layout.height);
     if (buffer == nullptr) {
         return;

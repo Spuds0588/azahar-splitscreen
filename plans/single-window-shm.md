@@ -1,10 +1,12 @@
 # Mission: one window, shared frames (replacing the XEmbed container)
 
 **Status:** implemented (spike complete, 2026-11-13). `tools/quadview`, the
-XEmbed stopgap, is deleted; `tools/viewer` is the only single-window path.
-Remaining before this leaves spike status: live present-fps measurement and the
-native-Wayland run, both blocked by the dev machine's compositor at the time
-(see `history.md` (12)).
+XEmbed stopgap, is deleted; `tools/viewer` is the only single-window path. Frames,
+compositing, keys, touch and teardown are all verified (see `history.md` (12)
+and (13)). The one check still outstanding is **environment-blocked, not code**:
+presented fps, because this display's GL stack is stalled (`glxgears` 1.0-1.8
+FPS). Rerun with `./run.sh` + `tools/qa/monitor.sh report` once the screen is
+compositing; native Wayland is the same run with `AZAHAR_QT_PLATFORM=wayland`.
 
 ## Why
 
@@ -68,7 +70,13 @@ paces any window-driven loop to ~1 Hz, so the producer must not be tied to it.
 | type | meaning | lands on |
 |------|---------|----------|
 | 1/2  | key down / up (`Qt::Key` code) | `InputCommon::GetKeyboard()->PressKey/ReleaseKey` (same call `GRenderWindow::keyPressEvent` makes) |
-| 3/4/5| touch down / move / up (viewer-local coords) | `EmuWindow::TouchPressed/TouchMoved/TouchReleased` |
+| 3/4/5| touch down / move / up (frame coords) | `EmuWindow::TouchPressed/TouchMoved/TouchReleased` |
+
+Touch coordinates are in the seat's **frame** space (the same 480x240 the viewer
+draws), and the seat resolves them through its own screen layout. A headless seat
+must therefore keep that layout in sync with the frame geometry — `PublishSharedFrame`
+does this with `UpdateCurrentFramebufferLayout()`, without which every touch lands
+outside the touchscreen rect and is dropped (this was the bug in `history.md` (13)).
 
 Gamepads stay exactly as they are: each instance reads its own SDL device, so a
 pad per seat never passes through the viewer.

@@ -139,10 +139,18 @@ touch are playability polish and may slip to Milestone 4.
       no `/dev/shm` object, no socket, no window). `tools/quadview` deleted.
 - [x] **P5 — measurement & docs** — `tools/qa/monitor.sh` samples the viewer
       (cpu/rss/presented fps) next to the seats. Numbers in `history.md` (12).
-- [ ] **Remaining for the mission, blocked on the dev display**: presented fps
-      with the screen live (`./run.sh`), and the native-Wayland run
-      (`AZAHAR_QT_PLATFORM=wayland ./run.sh`). The GL stack is stalled here —
-      glxgears is 1.0–1.8 FPS — so both were unmeasurable.
+- [x] **P3 follow-up — touch proven**: a tap at frame (440,195) on seat A's
+      bottom screen took seat A from MK7's title into a single-player race
+      (change 166/255) while seat B stayed at the title (0.01–0.04). Two bugs
+      had to be fixed for it: the seat's touch layout was never sized (headless
+      window) and the viewer mapped clicks to 400x480 instead of its own frame
+      geometry. See `history.md` (13).
+- [ ] **Known blocked check (environment, not code): presented fps.**
+      `glxgears` on this display is 1.0–1.8 FPS while nothing is composited, so
+      every swap-paced loop reads ~1 Hz. Rerun when the screen is live:
+      `./run.sh` → Start → `tools/qa/monitor.sh report` (viewer `presented_fps`
+      is in `slots/monitor.log`), or `./run.sh --start "<rom>" --players 4`.
+      Native Wayland is the same test with `AZAHAR_QT_PLATFORM=wayland`.
 - [ ] **In-process quad-system spike** (the real destination, also the libretro
       shape): four `Core::System` in one process, `GetInstance()` thread-local,
       one composited frame. Go/no-go gate for dropping the four-process design.

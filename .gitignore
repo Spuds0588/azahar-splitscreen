@@ -75,6 +75,12 @@ verify/
 # Test ROMs (never commit game images)
 Test Roms/
 *.3ds
+*.cci
+*.cxi
+*.cia
+*.3dsx
+*.zip
+*.7z
 
 # Orchestrator runtime state
 /slots/

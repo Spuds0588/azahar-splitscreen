@@ -129,6 +129,7 @@ public:
     void EnableStatsLog(const QString& path);
     /// Split-screen fork: publish frames to `/dev/shm/<name>` for the viewer.
     void EnableShmFrame(const std::string& name);
+    void EnableInputSocket(const std::string& path);
 #ifdef _WIN32
     void SetCustomWindowsScrollbar();
 #endif

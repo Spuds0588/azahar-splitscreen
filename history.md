@@ -543,3 +543,62 @@ touching the renderer.** Mission: `plans/single-window-shm.md`.
 - **Open for P2:** confirm the ring keeps publishing with the window hidden
   (`--windowed` off-screen or 1x1), which is what the mission's hidden-producer
   design needs.
+
+## 2026-11-13 (12) — one window: the shared-memory rework is the path
+
+**Verdict: four seats render into shared memory and one window composites them;
+the XEmbed stopgap is gone.** Mission: `plans/single-window-shm.md`.
+
+- **`tools/viewer`** (new, standalone Qt6 + GL, ~450 lines): one window, one
+  context, one textured quad per seat. It maps each ring read-only, copies the
+  newest complete slot (re-reading `seq` after the copy, seqlock style, so a torn
+  frame is never shown), uploads it as BGRA and draws it letterboxed into its
+  cell. Click a tile to select a seat; keys and touch go to that seat only.
+  Escape quits.
+- **Producer input**: `--input-socket <path>` (new `src/citra_qt/input_socket.{h,cpp}`)
+  binds a unix datagram socket and a `QSocketNotifier` on the GUI thread applies
+  each 12-byte message through the same calls the widget's own handlers make
+  (`PressKey`/`ReleaseKey`, `TouchPressed/Moved/Released`). The path is unlinked
+  on close, and a stale socket from a crash is taken over on open.
+- **Seats are headless**: `--shm-frame` now also sets `WA_DontShowOnScreen` and
+  hides the menu/status bars, so a session maps exactly one window. `--position`
+  / `--size` / `--borderless` are no longer used by the session.
+- **Orchestrator** (`src-tauri/src/process.rs`): seats spawn with ring
+  `azsh-<pid>-<n>` and socket `slots/<seat>.sock`, the viewer spawns once after
+  the boot check, and teardown unlinks every ring and socket (covering killed
+  seats, not just clean exits). `QT_QPA_PLATFORM` comes from
+  `AZAHAR_QT_PLATFORM` (default `xcb`, the proven path; `wayland` for the
+  native test). New `--start <rom> [--players N]` runs a session without the
+  picker and tears it down on SIGINT/SIGTERM. `tools/quadview` is deleted.
+
+Verified:
+- **Composite**: a 4-seat session (orchestrator, 4 rings of 1,382,464 B + 4
+  sockets, one `azahar-viewer`), and the viewer's own framebuffer read back with
+  `--dump /tmp/composite.png 4` shows four live MK7 races — correct colours,
+  right way up, 2x2 grid with letterboxing. `wmctrl -l` showed the session as one
+  `Azahar Splitscreen` window.
+- **Input isolation**: pressing HOME (Qt key 66) as a datagram to seat 1's socket
+  only — seat 1 went from racing back to MK7's title screen; seat 2 was
+  untouched. The producer-side socket and the viewer-side send were checked
+  separately: a real X keypress in the viewer produced `type=1 key=65` and
+  `type=2 key=65`, 12 bytes each, against a listener bound to the seat path.
+- **Teardown**: SIGTERM to the orchestrator left 0 azahar processes, 0 rings,
+  0 sockets and 0 windows.
+
+Not verified, and why:
+- **Presented fps.** The whole GL stack is stalled in this environment: glxgears
+  itself reports **1.0–1.8 FPS** on `:1` while nothing is being composited, and
+  the viewer's own `paint_ms` is 0.3–1.3 ms, so its 1 Hz is swap-wait, not work.
+  This is the same phenomenon as the earlier emulator "1 Hz present loop"
+  diagnosis. The viewer paces itself with a timer and `setSwapInterval(0)` so a
+  stalled compositor costs latency, not throughput; re-measure with the screen
+  live via `./run.sh`.
+- **Native Wayland.** The viewer initializes its GL context under
+  `QT_QPA_PLATFORM=wayland` but never gets a paint there, consistent with the
+  same stalled compositor. `AZAHAR_QT_PLATFORM=wayland ./run.sh` is the test.
+- **Touch effect in-game** (mouse → touch datagrams): the path is the same as
+  keys and the message was verified on the wire for keys; no touch was acted on
+  in a running game.
+
+Readback cost, for the record: +3 % of one core per seat at the title screen
+(13 % vs 10 % over 8 s), ~44 MB/s per seat at 57 fps.

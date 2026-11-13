@@ -129,7 +129,20 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **P1 of the shared-memory mission** — `--shm-frame <name>` publishes BGRA
       frames into `/dev/shm/<name>` at 57 fps (400x480, 3 slots); a decoded PNG
       matches the game. +3 % CPU per instance. See `plans/single-window-shm.md`.
-- [ ] P2: the viewer window (one window, four tiles, four rings).
+- [x] **P2 of the shared-memory mission** — `tools/viewer`: one window, one GL
+      context, a tile per ring, letterboxed; 4 seats composited and verified from
+      a framebuffer dump (four live MK7 races).
+- [x] **P3 — input** — `--input-socket <path>` + viewer forwarding, key datagrams
+      verified on the wire; HOME to seat 1 only took seat 1 off the race.
+- [x] **P4 — orchestrator** — seats spawn headless with ring+socket, the viewer
+      spawns once, teardown unlinks rings/sockets (SIGTERM left nothing running,
+      no `/dev/shm` object, no socket, no window). `tools/quadview` deleted.
+- [x] **P5 — measurement & docs** — `tools/qa/monitor.sh` samples the viewer
+      (cpu/rss/presented fps) next to the seats. Numbers in `history.md` (12).
+- [ ] **Remaining for the mission, blocked on the dev display**: presented fps
+      with the screen live (`./run.sh`), and the native-Wayland run
+      (`AZAHAR_QT_PLATFORM=wayland ./run.sh`). The GL stack is stalled here —
+      glxgears is 1.0–1.8 FPS — so both were unmeasurable.
 - [ ] **In-process quad-system spike** (the real destination, also the libretro
       shape): four `Core::System` in one process, `GetInstance()` thread-local,
       one composited frame. Go/no-go gate for dropping the four-process design.

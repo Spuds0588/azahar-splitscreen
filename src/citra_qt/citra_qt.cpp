@@ -566,6 +566,10 @@ void GMainWindow::EnableShmFrame(const std::string& name) {
     render_window->SetShmFrame(name);
 }
 
+void GMainWindow::EnableInputSocket(const std::string& path) {
+    render_window->SetInputSocket(path);
+}
+
 void GMainWindow::EnableStatsLog(const QString& path) {
     // The status bar normally consumes the perf counters; hand them to us instead.
     status_bar_update_timer.stop();
@@ -4965,6 +4969,7 @@ int LaunchQtFrontend(int argc, char* argv[]) {
     QString player_name;
     QString stats_path;
     std::string shm_frame_name;
+    std::string input_socket_path;
     u16 room_port = 0;
     for (int i = 1; i < argc; ++i) {
         const bool has_value = i + 1 < argc && argv[i + 1][0] != '-';
@@ -4994,7 +4999,17 @@ int LaunchQtFrontend(int argc, char* argv[]) {
             stats_path = QString::fromLocal8Bit(argv[++i]);
         } else if (strcmp(argv[i], "--shm-frame") == 0 && has_value) {
             shm_frame_name = argv[++i];
+        } else if (strcmp(argv[i], "--input-socket") == 0 && has_value) {
+            input_socket_path = argv[++i];
         }
+    }
+
+    if (!shm_frame_name.empty()) {
+        // The viewer owns the only real window; this process just produces
+        // frames and consumes input, so its own window is never mapped.
+        main_window.setAttribute(Qt::WA_DontShowOnScreen, true);
+        main_window.menuBar()->hide();
+        main_window.statusBar()->hide();
     }
 
     if (borderless) {
@@ -5027,6 +5042,10 @@ int LaunchQtFrontend(int argc, char* argv[]) {
 
     if (!shm_frame_name.empty()) {
         main_window.EnableShmFrame(shm_frame_name);
+    }
+
+    if (!input_socket_path.empty()) {
+        main_window.EnableInputSocket(input_socket_path);
     }
 
     if (!room_address.isEmpty() && room_port != 0) {

@@ -1,7 +1,10 @@
 # Mission: one window, shared frames (replacing the XEmbed container)
 
-**Status:** proposed — awaiting approval. Supersedes `tools/quadview` (the
-XEmbed stopgap) once it passes acceptance.
+**Status:** implemented (spike complete, 2026-11-13). `tools/quadview`, the
+XEmbed stopgap, is deleted; `tools/viewer` is the only single-window path.
+Remaining before this leaves spike status: live present-fps measurement and the
+native-Wayland run, both blocked by the dev machine's compositor at the time
+(see `history.md` (12)).
 
 ## Why
 
@@ -46,17 +49,21 @@ offset 40  request u64      // viewer increments to ask for a fresh frame
 offset 64  slots[3]         // width*height*4 each, 64-byte aligned
 ```
 
-Writer loop (in `azahar`, on the present thread): if `request` moved, call
-`system.GPU().Renderer().RequestScreenshot(slot, cb, layout)` into
-`slots[(seq+1)%3]`, then `seq++` with a release store. Reader copies the slot
-whose `seq` is current and re-checks the sequence after the copy (seqlock
-style), so a torn frame is never shown. Pull-based: the producer only reads back
-frames the viewer will actually present, so a 60 Hz monitor costs 60 readbacks
-per second per seat, not 240.
+Writer loop (in `azahar`): a 16 ms timer arms
+`system.GPU().Renderer().RequestScreenshot(slot, cb, layout)`, which the renderer
+fulfils inside its own per-frame swap; the callback bumps `seq` with a release
+store. One readback is in flight at a time. Reader copies the slot whose `seq` is
+current and re-checks the sequence after the copy (seqlock style), so a torn
+frame is never shown.
+
+As built, the producer publishes at its own rate (~57 fps measured, +3 % of one
+core) rather than gating on the `request` counter: on this machine the compositor
+paces any window-driven loop to ~1 Hz, so the producer must not be tied to it.
+`request` is reserved for the pull model if the readback cost ever needs to drop.
 
 ### Input (per seat, unix datagram socket)
 
-24-byte messages, `{type u8, pad, key u32, x u16, y u16}`:
+12-byte messages, `{type u8, pad[3], key u32, x u16, y u16}`:
 
 | type | meaning | lands on |
 |------|---------|----------|
@@ -74,7 +81,7 @@ pad per seat never passes through the viewer.
 | Producer | `src/citra_qt/bootmanager.cpp` / `.h` (`GRenderWindow`) | frame ring writer on the present thread (reusing `Renderer::RequestScreenshot`), socket reader on the GUI thread |
 | Viewer | `tools/viewer/` (new, standalone Qt6 + OpenGL) | one window, 4 textured quads, click-to-select seat, key/touch forwarding, fps/HUD counters |
 | Orchestrator | `src-tauri/src/process.rs` | spawn seats with the two flags, spawn the viewer once, teardown order, drop `spawn_viewer` for quadview |
-| Cleanup | `tools/quadview/` | delete once the viewer passes acceptance — one single-window path only |
+| Cleanup | `tools/quadview/` | **deleted** — one single-window path only |
 
 ## Phases
 

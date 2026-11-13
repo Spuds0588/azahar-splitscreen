@@ -9,8 +9,10 @@
 #include <memory>
 #include <mutex>
 #include <QThread>
+#include <QSocketNotifier>
 #include <QTimer>
 #include <QWidget>
+#include "citra_qt/input_socket.h"
 #include "citra_qt/shm_frame.h"
 #include "core/core.h"
 #include "core/frontend/emu_window.h"
@@ -169,6 +171,9 @@ public:
     /// so a single viewer window can composite the seats.
     void SetShmFrame(const std::string& name);
 
+    /// Split-screen fork: listen on `<path>` for keys/touch from the viewer.
+    void SetInputSocket(const std::string& path);
+
     std::pair<u32, u32> ScaleTouch(const QPointF pos) const;
 
 public slots:
@@ -224,6 +229,13 @@ private:
     std::unique_ptr<ShmFrameRing> shm_frame;
     std::unique_ptr<QTimer> shm_timer;
     void PublishSharedFrame();
+
+    /// Split-screen fork: input forwarded by the viewer, since a seat that only
+    /// draws into shared memory has no window of its own.
+    std::unique_ptr<InputSocket> input_socket;
+    std::unique_ptr<QSocketNotifier> input_notifier;
+    void ReadForwardedInput();
+    void ApplyForwardedInput(const InputMessage& message);
     QByteArray geometry;
     bool first_frame = false;
     bool has_focus = false;

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Launch azahar-splitscreen for a testing session.
 #
-#   ./run.sh            # QA sampler in the background + the orchestrator window
+#   ./run.sh                                  # QA sampler + the orchestrator window
+#   ./run.sh --start "<rom>" --players 4      # session from a terminal, no picker
 #
-# Pick a game and a player count in the window and press Start; the four seats
-# open inside one window (tools/quadview), and the sampler records fps/CPU/RSS
-# per seat to slots/monitor.log. `tools/qa/monitor.sh report` summarises it.
+# Pick a game and a player count in the window and press Start; the seats render
+# headless into shared memory and one window (tools/viewer) composites them, so
+# the session is a single window. The sampler records fps/CPU/RSS per seat and
+# for the viewer to slots/monitor.log; `tools/qa/monitor.sh report` summarises it.
 set -u
 cd "$(dirname "$0")"
 
@@ -17,10 +19,10 @@ if [ ! -x "$orchestrator" ]; then
     exit 1
 fi
 
-if [ ! -x tools/quadview/build/azahar-quadview ]; then
-    echo "note: single-window container not built, seats will open as four windows:" >&2
-    echo "  cmake -S tools/quadview -B tools/quadview/build -G Ninja && ninja -C tools/quadview/build" >&2
+if [ ! -x tools/viewer/build/azahar-viewer ]; then
+    echo "note: the single-window viewer is not built, the seats would be headless:" >&2
+    echo "  cmake -S tools/viewer -B tools/viewer/build -G Ninja && ninja -C tools/viewer/build" >&2
 fi
 
 ./tools/qa/monitor.sh start >/dev/null 2>&1 || true
-exec "$orchestrator"
+exec "$orchestrator" "$@"

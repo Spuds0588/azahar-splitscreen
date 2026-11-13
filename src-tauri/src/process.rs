@@ -19,8 +19,11 @@ pub struct Rom {
 pub struct Session {
     room: Child,
     instances: Vec<Child>,
-    /// Optional single-window container that adopts the seat windows (X11 only).
+    /// The single window: composites the seats' shared-memory frames.
     viewer: Option<Child>,
+    /// Per-seat frame rings and input sockets this session owns.
+    rings: Vec<String>,
+    sockets: Vec<PathBuf>,
     pub log_path: PathBuf,
     pub summary: String,
 }
@@ -39,8 +42,6 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        // Stop the container first: it reparents the seat windows back to the
-        // root window on a clean exit, so the instances keep their viewers.
         if let Some(mut viewer) = self.viewer.take() {
             terminate(&mut viewer);
         }
@@ -48,6 +49,24 @@ impl Drop for Session {
             terminate(child);
         }
         terminate(&mut self.room);
+        cleanup_artifacts(&self.rings, &self.sockets);
+    }
+}
+
+/// Qt platform for the seats and the viewer. X11/XWayland is the proven path;
+/// set `AZAHAR_QT_PLATFORM=wayland` to run the wayland-native acceptance test.
+fn qt_platform() -> String {
+    std::env::var("AZAHAR_QT_PLATFORM").unwrap_or_else(|_| "xcb".to_string())
+}
+
+/// Remove the session's shared-memory rings and input sockets. The emulator
+/// unlinks both on a clean exit; this is what covers a killed or crashed seat.
+fn cleanup_artifacts(rings: &[String], sockets: &[PathBuf]) {
+    for ring in rings {
+        let _ = fs::remove_file(Path::new("/dev/shm").join(ring));
+    }
+    for socket in sockets {
+        let _ = fs::remove_file(socket);
     }
 }
 
@@ -158,20 +177,37 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
     }
     log(&log_path, "room: open");
 
+    // The seats no longer own windows, so the grid is only what the viewer
+    // draws; log it so a session's shape is in the log next to the fps lines.
     let rects = layout::tiles(players, width, height);
+    let grid = rects
+        .first()
+        .map(|r| format!("{}x{} cells of {}x{}", 2, if players <= 2 { 1 } else { 2 }, r.width, r.height))
+        .unwrap_or_default();
+    log(&log_path, &format!("viewer grid: {grid}"));
+
+    let rings: Vec<String> = (1..=slots.len())
+        .map(|seat| format!("azsh-{}-{seat}", std::process::id()))
+        .collect();
+    let sockets: Vec<PathBuf> = slots
+        .iter()
+        .map(|slot| session_dir.join(format!("{}.sock", slot.name)))
+        .collect();
+
     let mut instances = Vec::with_capacity(slots.len());
     let mut instance_logs = Vec::with_capacity(slots.len());
-    for (slot, rect) in slots.iter().zip(rects) {
+    for ((slot, ring), socket) in slots.iter().zip(&rings).zip(&sockets) {
         let instance_log = session_dir.join(format!("{}.log", slot.name));
         instance_logs.push(instance_log.clone());
         let args = vec![
             "--user".into(),
             slot.user_dir.display().to_string(),
-            "--position".into(),
-            format!("{},{}", rect.x, rect.y),
-            "--size".into(),
-            format!("{}x{}", rect.width, rect.height),
-            "--borderless".into(),
+            // The seat renders into shared memory and takes input from its
+            // socket; the viewer owns the only window in the session.
+            "--shm-frame".into(),
+            ring.clone(),
+            "--input-socket".into(),
+            socket.display().to_string(),
             "--join-room".into(),
             format!("127.0.0.1:{port}"),
             "--player-name".into(),
@@ -189,12 +225,9 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
                 log(
                     &log_path,
                     &format!(
-                        "{}: spawned {}x{} at {},{}, log {}",
+                        "{}: spawned headless, ring {ring}, socket {}, log {}",
                         slot.name,
-                        rect.width,
-                        rect.height,
-                        rect.x,
-                        rect.y,
+                        socket.display(),
                         instance_log.display()
                     ),
                 );
@@ -205,6 +238,7 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
                     terminate(child);
                 }
                 terminate(&mut room);
+                cleanup_artifacts(&rings, &sockets);
                 return Err(format!("failed to start {}: {error}", slot.name));
             }
         }
@@ -219,18 +253,25 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
             terminate(child);
         }
         terminate(&mut room);
+        cleanup_artifacts(&rings, &sockets);
         return Err(message);
     }
 
-    let viewer = spawn_viewer(&root, &session_dir, slots.len());
-    if viewer.is_some() {
-        log(&log_path, "viewer: single-window container adopted the seats");
+    let viewer = spawn_viewer(&root, &session_dir, &rings, &sockets);
+    match &viewer {
+        Some(_) => log(&log_path, "viewer: one window compositing all seats"),
+        None => log(
+            &log_path,
+            "viewer: tools/viewer/build/azahar-viewer is missing, seats are headless",
+        ),
     }
 
     Ok(Session {
         room,
         instances,
         viewer,
+        rings,
+        sockets,
         log_path,
         summary: format!(
             "{} players in room splitscreen on port {port}",
@@ -239,14 +280,24 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
     })
 }
 
-/// Adopt the seat windows into one window when the optional container is built.
-fn spawn_viewer(root: &Path, session_dir: &Path, seats: usize) -> Option<Child> {
-    let viewer = root.join("tools/quadview/build/azahar-quadview");
-    if !viewer.exists() {
+/// The single window. Each seat contributes its frame ring and the socket its
+/// input goes to; the viewer never learns anything else about the session.
+fn spawn_viewer(
+    root: &Path,
+    session_dir: &Path,
+    rings: &[String],
+    sockets: &[PathBuf],
+) -> Option<Child> {
+    let viewer = root.join("tools/viewer/build/azahar-viewer");
+    if !viewer.exists() || rings.is_empty() {
         return None;
     }
-    let args = vec!["--expect".to_string(), seats.to_string()];
-    spawn(&viewer, &args, root, &session_dir.join("quadview.log")).ok()
+    let mut args = Vec::with_capacity(rings.len() * 2);
+    for (ring, socket) in rings.iter().zip(sockets) {
+        args.push("--seat".to_string());
+        args.push(format!("{ring}:{}", socket.display()));
+    }
+    spawn(&viewer, &args, root, &session_dir.join("viewer.log")).ok()
 }
 
 /// Fail fast when a seat could not load the ROM at all. The loader's verdict is
@@ -282,7 +333,7 @@ fn spawn(bin: &Path, args: &[String], cwd: &Path, log_path: &Path) -> io::Result
         .arg(bin)
         .args(args)
         .current_dir(cwd)
-        .env("QT_QPA_PLATFORM", "xcb")
+        .env("QT_QPA_PLATFORM", qt_platform())
         // Exact tile sizes: Qt's DPI rounding would otherwise turn 960x540 into 1000x563.
         .env("QT_SCALE_FACTOR", "1")
         .env("QT_ENABLE_HIGHDPI_SCALING", "0")

@@ -7,7 +7,8 @@
 #
 # One sample per second per running instance: cpu (% of one core), rss (MB),
 # plus the newest line of slots/<seat>.fps (fps/speed/frame_ms) and the number
-# of new Error/Critical log lines since the previous sample.
+# of new Error/Critical log lines since the previous sample. The single window
+# (`azahar-viewer`) is sampled the same way, with its own presented fps.
 set -u
 cd "$(dirname "$0")/../.."
 LOG=slots/monitor.log
@@ -55,6 +56,20 @@ loop() {
                 prev_err[$seat]=$errs
                 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
                     "$ts" "$seat" "$pid" "$cpu" "${rss:-0}" "${fps:--}" "${speed:--}" "${frame:--}" "$new" >> "$LOG"
+            done
+            # The single window is sampled like a seat: cpu/rss plus the fps it
+            # reports for itself (presented frames per second).
+            for pid in $(pgrep -x azahar-viewer 2>/dev/null); do
+                now=$(cpu_ticks "$pid")
+                [ -z "$now" ] && continue
+                before=${prev_ticks[$pid]:-$now}
+                prev_ticks[$pid]=$now
+                cpu=$(( (now - before) * 100 / (interval * $(getconf CLK_TCK)) ))
+                rss=$(awk '/VmRSS/{printf "%d", $2/1024}' "/proc/$pid/status" 2>/dev/null)
+                fps=$(tail -1 slots/viewer.log 2>/dev/null |
+                    sed -n 's/.*presented_fps=\([0-9.]*\).*/\1/p')
+                printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                    "$ts" "viewer" "$pid" "$cpu" "${rss:-0}" "${fps:--}" "-" "-" "0" >> "$LOG"
             done
             sleep "$interval"
         done

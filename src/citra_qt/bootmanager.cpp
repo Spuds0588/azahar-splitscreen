@@ -819,6 +819,53 @@ void GRenderWindow::PublishSharedFrame() {
         buffer, [ring = shm_frame.get()](bool) { ring->EndFrame(); }, layout);
 }
 
+void GRenderWindow::SetInputSocket(const std::string& path) {
+    input_socket = std::make_unique<InputSocket>();
+    if (!input_socket->Open(path)) {
+        input_socket.reset();
+        return;
+    }
+    input_notifier = std::make_unique<QSocketNotifier>(input_socket->Fd(), QSocketNotifier::Read,
+                                                       this);
+    connect(input_notifier.get(), &QSocketNotifier::activated, this,
+            [this] { ReadForwardedInput(); });
+}
+
+void GRenderWindow::ReadForwardedInput() {
+    if (!input_socket) {
+        return;
+    }
+    InputMessage messages[32];
+    const std::size_t count = input_socket->Drain(messages, std::size(messages));
+    for (std::size_t i = 0; i < count; ++i) {
+        ApplyForwardedInput(messages[i]);
+    }
+}
+
+void GRenderWindow::ApplyForwardedInput(const InputMessage& message) {
+    // The same calls the widget's own event handlers make, so a forwarded key
+    // behaves exactly like one pressed in the window.
+    switch (message.type) {
+    case 1:
+        InputCommon::GetKeyboard()->PressKey(message.key);
+        break;
+    case 2:
+        InputCommon::GetKeyboard()->ReleaseKey(message.key);
+        break;
+    case 3:
+        TouchPressed(message.x, message.y);
+        break;
+    case 4:
+        TouchMoved(message.x, message.y);
+        break;
+    case 5:
+        TouchReleased();
+        break;
+    default:
+        break;
+    }
+}
+
 void GRenderWindow::OnMinimalClientAreaChangeRequest(std::pair<u32, u32> minimal_size) {
     setMinimumSize(minimal_size.first, minimal_size.second);
 }

@@ -106,7 +106,54 @@ fn monitor_size(app: &tauri::AppHandle) -> (i32, i32) {
     (1920, 1080)
 }
 
+/// `--start <rom> [--players N]`: run a session without the picker, for QA
+/// scripts and for starting a couch session from a terminal. It stays in the
+/// foreground and tears everything down on Ctrl-C, exactly as the window does.
+static TERMINATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn on_terminate(_: libc::c_int) {
+    TERMINATE.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn run_headless(rom: &str, players: u8) -> ! {
+    // Ctrl-C has to take the room, the seats and the viewer with it, so the
+    // signal only raises a flag: the session is dropped on the normal path.
+    unsafe {
+        libc::signal(libc::SIGINT, on_terminate as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, on_terminate as libc::sighandler_t);
+    }
+    let mut session = match process::start(rom, players.clamp(2, 4), 1920, 1080) {
+        Ok(session) => session,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+    };
+    println!("{}", session.summary);
+    while session.is_running() && !TERMINATE.load(std::sync::atomic::Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    drop(session);
+    std::process::exit(0);
+}
+
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(position) = args.iter().position(|arg| arg == "--start") {
+        let rom = args.get(position + 1).cloned().unwrap_or_default();
+        if rom.is_empty() {
+            eprintln!("usage: azahar-splitscreen --start <rom> [--players 2-4]");
+            std::process::exit(1);
+        }
+        let players = args
+            .iter()
+            .position(|arg| arg == "--players")
+            .and_then(|index| args.get(index + 1))
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(2);
+        run_headless(&rom, players);
+    }
+
     let app = tauri::Builder::default()
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![

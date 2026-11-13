@@ -1,0 +1,82 @@
+// azahar-viewer — one window for a split-screen Azahar session.
+//
+//   azahar-viewer --seat azsh-1:/tmp/p1.sock --seat azsh-2:/tmp/p2.sock …
+//   azahar-viewer --windowed --seat azsh-1
+//
+// Each --seat is `<shm ring name>[:<input socket>]`. The viewer draws one tile
+// per ring in a near-square grid and forwards keyboard/touch input to the
+// selected seat (click a tile to select it, Escape quits). Fullscreen and
+// frameless by default — a couch session should be one window and nothing else.
+
+#include "viewer.h"
+
+#include <QApplication>
+#include <QScreen>
+#include <QSurfaceFormat>
+
+int main(int argc, char* argv[]) {
+    QSurfaceFormat format;
+    format.setVersion(3, 3);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    format.setDepthBufferSize(0);
+    format.setStencilBufferSize(0);
+    // Paced by the viewer's own timer, not by the compositor: on this machine a
+    // compositor that is not delivering frame callbacks (window off-screen, or
+    // simply not composited yet) blocks the swap to ~1 Hz and starves the whole
+    // window. The timer is the pacing authority; a late frame is skipped.
+    format.setSwapInterval(0);
+    QSurfaceFormat::setDefaultFormat(format);
+
+    QApplication app(argc, argv);
+    QApplication::setApplicationName(QStringLiteral("azahar-viewer"));
+
+    QVector<Seat> seats;
+    QString title = QStringLiteral("Azahar Splitscreen");
+    QString dump_path;
+    quint64 dump_frame = 0;
+    bool windowed = false;
+    for (int i = 1; i < argc; ++i) {
+        const QString arg = QString::fromLocal8Bit(argv[i]);
+        if ((arg == QLatin1String("--seat") || arg == QLatin1String("--ring")) && i + 1 < argc) {
+            const QString spec = QString::fromLocal8Bit(argv[++i]);
+            const int colon = spec.indexOf(QLatin1Char(':'));
+            Seat seat;
+            seat.ring_name = colon > 0 ? spec.left(colon) : spec;
+            seat.socket_path = colon > 0 ? spec.mid(colon + 1) : QString();
+            if (!seat.ring_name.isEmpty()) {
+                seats.push_back(seat);
+            }
+        } else if (arg == QLatin1String("--dump") && i + 2 < argc) {
+            dump_path = QString::fromLocal8Bit(argv[++i]);
+            dump_frame = QString::fromLocal8Bit(argv[++i]).toULongLong();
+        } else if (arg == QLatin1String("--windowed")) {
+            windowed = true;
+        } else if (arg == QLatin1String("--title") && i + 1 < argc) {
+            title = QString::fromLocal8Bit(argv[++i]);
+        } else if (!arg.startsWith(QLatin1Char('-'))) {
+            Seat seat;
+            seat.ring_name = arg; // bare ring names are accepted too
+            seats.push_back(seat);
+        }
+    }
+    if (seats.isEmpty()) {
+        fprintf(stderr, "usage: azahar-viewer [--windowed] --seat <ring[:socket]> …\n");
+        return 1;
+    }
+
+    Viewer viewer(seats);
+    viewer.setWindowTitle(title);
+    if (!dump_path.isEmpty() && dump_frame > 0) {
+        viewer.set_dump(dump_path, dump_frame);
+    }
+    if (!windowed) {
+        viewer.setWindowFlag(Qt::FramelessWindowHint, true);
+        viewer.setGeometry(viewer.screen()->availableGeometry());
+    } else {
+        viewer.resize(1280, 720);
+    }
+    viewer.show();
+    viewer.setFocus();
+
+    return QApplication::exec();
+}

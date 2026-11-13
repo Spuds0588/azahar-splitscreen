@@ -22,6 +22,7 @@
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <vector>
@@ -147,19 +148,44 @@ int main(int argc, char* argv[]) {
     }
 
     std::vector<Window> seats;
+    int expected = 0;
     for (int i = 1; i < argc; ++i) {
+        const QString arg = QString::fromLocal8Bit(argv[i]);
+        if (arg == QLatin1String("--expect") && i + 1 < argc) {
+            expected = QString::fromLocal8Bit(argv[++i]).toInt();
+            continue;
+        }
         bool ok = false;
-        const auto id = QString::fromLocal8Bit(argv[i]).toULongLong(&ok, 0);
+        const auto id = arg.toULongLong(&ok, 0);
         if (ok) {
             seats.push_back(static_cast<Window>(id));
         }
     }
     if (seats.empty()) {
-        for (const auto& found : find_azahar_windows(display)) {
-            qInfo("adopting 0x%lx at %d,%d  %s", found.id, found.x, found.y,
-                  qPrintable(found.title));
-            seats.push_back(found.id);
+        // Wait for the whole set: adopting a half-booted session would put error
+        // dialogs and menu-bar windows into the grid.
+        for (int attempt = 0; attempt < 50; ++attempt) {
+            const auto found = find_azahar_windows(display);
+            const bool enough = expected > 0 ? static_cast<int>(found.size()) >= expected
+                                             : !found.empty();
+            if (enough) {
+                for (const auto& window : found) {
+                    qInfo("adopting 0x%lx at %d,%d  %s", window.id, window.x, window.y,
+                          qPrintable(window.title));
+                    seats.push_back(window.id);
+                }
+                break;
+            }
+            usleep(200'000);
         }
+        if (expected > 0 && static_cast<int>(seats.size()) > expected) {
+            seats.resize(static_cast<size_t>(expected));
+        }
+    }
+    if (expected > 0 && static_cast<int>(seats.size()) < expected) {
+        qCritical("quadview: expected %d seats but found %zu — leaving the windows alone",
+                  expected, seats.size());
+        return 1;
     }
     if (seats.empty()) {
         qCritical("quadview: no Azahar windows found — start a session first");

@@ -511,3 +511,35 @@ change to how the emulator renders.**
   dump is still encrypted and the slots carry no `aes_keys.txt`/`seeddb.bin`.
   The orchestrator happily launched four seats into that dead end; a pre-flight
   "this ROM did not boot" check belongs in the QA loop.
+
+## 2026-11-13 (11) — P1: frames in shared memory
+
+**Verdict: an instance can publish its frames to a viewer at 57 fps without
+touching the renderer.** Mission: `plans/single-window-shm.md`.
+
+- **`--shm-frame <name>`** (`src/citra_qt/citra_qt.cpp`, `bootmanager.cpp`,
+  new `src/citra_qt/shm_frame.{h,cpp}`) creates `/dev/shm/<name>` with a 64-byte
+  header (magic `AZSH`, version, size, stride, format, 3 slots, `seq`,
+  `request`) and three BGRA8 slots, then publishes a frame per presentation.
+  Format is BGRA, bottom-up — exactly what `Renderer::RequestScreenshot` already
+  writes (`glReadPixels(GL_BGRA, ...)`), so no colour or row conversion happens
+  in the producer.
+- **Producer hook (the useful discovery):** the Qt widget's present loop is
+  paced by the compositor and *stops entirely when the window is hidden* — an
+  early hook there published **1 frame/s** (measured: 86 of 103 `Present()` calls
+  bailed on `!isVisible()`). The fix is a 16 ms `QTimer` on `GRenderWindow` that
+  arms `Renderer::RequestScreenshot`; the renderer fulfils it inside its own
+  per-frame `SwapBuffers` at 60 Hz. Measured **57 frames/s** published, one
+  readback in flight at a time (atomic `compare_exchange` gate, safe across the
+  GUI and GPU threads).
+- **Verified by decoding, not by trusting the counter:** `python3` maps the shm
+  object, reads the header (400x480, stride 1600, 3 slots of 768,000 B), grabs
+  the newest slot and writes a PNG — a correct, right-way-up Mario Kart 7
+  title screen. 2,304,064 bytes total for the mapping.
+- **Cost:** +3 % of one core per instance at the title screen (13 % vs 10 %,
+  8 s samples), i.e. ~0.12 core for four seats. At 400x480x4 x 57 fps that is
+  ~44 MB/s per seat, ~175 MB/s for the full session — the reason the plan pulls
+  frames rather than pushing them.
+- **Open for P2:** confirm the ring keeps publishing with the window hidden
+  (`--windowed` off-screen or 1x1), which is what the mission's hidden-producer
+  design needs.

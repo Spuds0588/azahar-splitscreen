@@ -160,8 +160,10 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
 
     let rects = layout::tiles(players, width, height);
     let mut instances = Vec::with_capacity(slots.len());
+    let mut instance_logs = Vec::with_capacity(slots.len());
     for (slot, rect) in slots.iter().zip(rects) {
         let instance_log = session_dir.join(format!("{}.log", slot.name));
+        instance_logs.push(instance_log.clone());
         let args = vec![
             "--user".into(),
             slot.user_dir.display().to_string(),
@@ -209,7 +211,18 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
         sleep(Duration::from_millis(2000)); // staggered, as the sisters' notes require
     }
 
-    let viewer = spawn_viewer(&root, &session_dir);
+    // A dump the emulator cannot boot (still encrypted, no keys in the slot)
+    // fails within a second of loading. Catch it here instead of leaving the
+    // couch with four error dialogs on screen.
+    if let Err(message) = check_boots(&slots, &instance_logs, Duration::from_secs(6)) {
+        for child in &mut instances {
+            terminate(child);
+        }
+        terminate(&mut room);
+        return Err(message);
+    }
+
+    let viewer = spawn_viewer(&root, &session_dir, slots.len());
     if viewer.is_some() {
         log(&log_path, "viewer: single-window container adopted the seats");
     }
@@ -227,12 +240,39 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
 }
 
 /// Adopt the seat windows into one window when the optional container is built.
-fn spawn_viewer(root: &Path, session_dir: &Path) -> Option<Child> {
+fn spawn_viewer(root: &Path, session_dir: &Path, seats: usize) -> Option<Child> {
     let viewer = root.join("tools/quadview/build/azahar-quadview");
     if !viewer.exists() {
         return None;
     }
-    spawn(&viewer, &[], root, &session_dir.join("quadview.log")).ok()
+    let args = vec!["--expect".to_string(), seats.to_string()];
+    spawn(&viewer, &args, root, &session_dir.join("quadview.log")).ok()
+}
+
+/// Fail fast when a seat could not load the ROM at all. The loader's verdict is
+/// in the slot's own `azahar_log.txt`; the stdout log only carries frontend
+/// chatter.
+fn check_boots(slots: &[slots::Slot], logs: &[PathBuf], timeout: Duration) -> Result<(), String> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        for (slot, path) in slots.iter().zip(logs) {
+            let mut text = fs::read_to_string(path).unwrap_or_default();
+            text.push_str(
+                &fs::read_to_string(slot.user_dir.join("log/azahar_log.txt")).unwrap_or_default(),
+            );
+            if text.contains("Failed to determine system mode") ||
+                text.contains("Encrypted applications are not supported")
+            {
+                return Err(format!(
+                    "This ROM did not boot — {} reports an encrypted or unsupported \
+                     application. Nothing was started; pick a decrypted dump.",
+                    path.file_stem().unwrap_or_default().to_string_lossy()
+                ));
+            }
+        }
+        sleep(Duration::from_millis(200));
+    }
+    Ok(())
 }
 
 fn spawn(bin: &Path, args: &[String], cwd: &Path, log_path: &Path) -> io::Result<Child> {

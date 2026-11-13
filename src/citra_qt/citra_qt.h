@@ -127,6 +127,8 @@ public:
     void JoinRoom(const QString& nickname, const QString& host, u16 port);
     /// Split-screen fork: append a measured fps/speed/frame-time line every second.
     void EnableStatsLog(const QString& path);
+    /// Split-screen fork: publish frames to `/dev/shm/<name>` for the viewer.
+    void EnableShmFrame(const std::string& name);
 #ifdef _WIN32
     void SetCustomWindowsScrollbar();
 #endif

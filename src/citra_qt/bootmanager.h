@@ -9,7 +9,9 @@
 #include <memory>
 #include <mutex>
 #include <QThread>
+#include <QTimer>
 #include <QWidget>
+#include "citra_qt/shm_frame.h"
 #include "core/core.h"
 #include "core/frontend/emu_window.h"
 
@@ -163,6 +165,10 @@ public:
 
     void CaptureScreenshot(u32 res_scale, const QString& screenshot_path);
 
+    /// Split-screen fork: publish every presented frame into `/dev/shm/<name>`
+    /// so a single viewer window can composite the seats.
+    void SetShmFrame(const std::string& name);
+
     std::pair<u32, u32> ScaleTouch(const QPointF pos) const;
 
 public slots:
@@ -213,6 +219,11 @@ private:
 
     /// Temporary storage of the screenshot taken
     QImage screenshot_image;
+
+    /// Split-screen fork: shared frames for the single-window viewer.
+    std::unique_ptr<ShmFrameRing> shm_frame;
+    std::unique_ptr<QTimer> shm_timer;
+    void PublishSharedFrame();
     QByteArray geometry;
     bool first_frame = false;
     bool has_focus = false;

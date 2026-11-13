@@ -562,6 +562,10 @@ GMainWindow::GMainWindow(Core::System& system_)
     }
 }
 
+void GMainWindow::EnableShmFrame(const std::string& name) {
+    render_window->SetShmFrame(name);
+}
+
 void GMainWindow::EnableStatsLog(const QString& path) {
     // The status bar normally consumes the perf counters; hand them to us instead.
     status_bar_update_timer.stop();
@@ -4960,6 +4964,7 @@ int LaunchQtFrontend(int argc, char* argv[]) {
     QString room_address;
     QString player_name;
     QString stats_path;
+    std::string shm_frame_name;
     u16 room_port = 0;
     for (int i = 1; i < argc; ++i) {
         const bool has_value = i + 1 < argc && argv[i + 1][0] != '-';
@@ -4987,6 +4992,8 @@ int LaunchQtFrontend(int argc, char* argv[]) {
             player_name = QString::fromLocal8Bit(argv[++i]);
         } else if (strcmp(argv[i], "--stats") == 0 && has_value) {
             stats_path = QString::fromLocal8Bit(argv[++i]);
+        } else if (strcmp(argv[i], "--shm-frame") == 0 && has_value) {
+            shm_frame_name = argv[++i];
         }
     }
 
@@ -5016,6 +5023,10 @@ int LaunchQtFrontend(int argc, char* argv[]) {
 
     if (!stats_path.isEmpty()) {
         main_window.EnableStatsLog(stats_path);
+    }
+
+    if (!shm_frame_name.empty()) {
+        main_window.EnableShmFrame(shm_frame_name);
     }
 
     if (!room_address.isEmpty() && room_port != 0) {

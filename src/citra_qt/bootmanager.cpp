@@ -786,6 +786,39 @@ void GRenderWindow::CaptureScreenshot(u32 res_scale, const QString& screenshot_p
         layout);
 }
 
+void GRenderWindow::SetShmFrame(const std::string& name) {
+    shm_frame = std::make_unique<ShmFrameRing>();
+    if (!shm_frame->Open(name)) {
+        shm_frame.reset();
+        return;
+    }
+
+    // The widget's present loop is paced by the compositor (and stops entirely
+    // when the window is hidden), so drive the ring from our own clock: the
+    // renderer fulfils the readback on the very next frame it swaps.
+    shm_timer = std::make_unique<QTimer>(this);
+    connect(shm_timer.get(), &QTimer::timeout, this, &GRenderWindow::PublishSharedFrame);
+    shm_timer->start(16);
+}
+
+void GRenderWindow::PublishSharedFrame() {
+    if (!shm_frame || !shm_frame->IsOpen() || !system.IsPoweredOn()) {
+        return;
+    }
+    auto& renderer = system.GPU().Renderer();
+    if (renderer.IsScreenshotPending()) {
+        return; // one readback in flight at a time
+    }
+    const auto layout{Layout::FrameLayoutFromResolutionScale(
+        renderer.GetResolutionScaleFactor(), is_secondary)};
+    u8* buffer = shm_frame->BeginFrame(layout.width, layout.height);
+    if (buffer == nullptr) {
+        return;
+    }
+    renderer.RequestScreenshot(
+        buffer, [ring = shm_frame.get()](bool) { ring->EndFrame(); }, layout);
+}
+
 void GRenderWindow::OnMinimalClientAreaChangeRequest(std::pair<u32, u32> minimal_size) {
     setMinimumSize(minimal_size.first, minimal_size.second);
 }

@@ -126,6 +126,10 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **One window** — `tools/quadview` adopts the four seat windows (XEmbed,
       X11/XWayland), spawned and torn down by the orchestrator. Verified: one
       window, four 959x516 tiles, 59-60 fps, keyboard/touch follow the pointer.
+- [x] **P1 of the shared-memory mission** — `--shm-frame <name>` publishes BGRA
+      frames into `/dev/shm/<name>` at 57 fps (400x480, 3 slots); a decoded PNG
+      matches the game. +3 % CPU per instance. See `plans/single-window-shm.md`.
+- [ ] P2: the viewer window (one window, four tiles, four rings).
 - [ ] **In-process quad-system spike** (the real destination, also the libretro
       shape): four `Core::System` in one process, `GetInstance()` thread-local,
       one composited frame. Go/no-go gate for dropping the four-process design.

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Azahar Splitscreen</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #16181d;
+        color: #e6e8ee;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+      header { padding: 16px 20px 8px; }
+      h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
+      p.hint { margin: 0; color: #8b93a7; font-size: 12px; }
+      main { padding: 12px 20px; display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+      label { display: block; font-size: 12px; color: #8b93a7; margin-bottom: 4px; }
+      select, button {
+        width: 100%;
+        padding: 8px;
+        border-radius: 6px;
+        border: 1px solid #2c3240;
+        background: #1e222a;
+        color: inherit;
+        font-size: 14px;
+      }
+      .row { display: flex; gap: 12px; align-items: end; }
+      .row > div { flex: 1; }
+      .actions { display: flex; gap: 12px; padding: 0 20px 12px; }
+      button { cursor: pointer; }
+      button.primary { background: #2f6feb; border-color: #2f6feb; }
+      button.primary:disabled, button:disabled { opacity: .45; cursor: default; }
+      #status { padding: 0 20px 8px; font-size: 13px; color: #9fb0d0; }
+      #pads { font-size: 12px; color: #8b93a7; padding: 0 20px 8px; }
+      pre {
+        flex: 1;
+        margin: 0 20px 20px;
+        padding: 12px;
+        overflow: auto;
+        background: #101216;
+        border: 1px solid #242a36;
+        border-radius: 8px;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Azahar Splitscreen</h1>
+      <p class="hint">One loopback room, one Azahar per seat, tiled windows.</p>
+    </header>
+
+    <main>
+      <div>
+        <label for="rom">Game</label>
+        <select id="rom"></select>
+      </div>
+      <div>
+        <label for="players">Players</label>
+        <select id="players">
+          <option value="2" selected>2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select>
+      </div>
+    </main>
+
+    <div class="actions">
+      <button id="start" class="primary">Start</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+
+    <div id="status">Idle.</div>
+    <div id="pads"></div>
+    <pre id="log"></pre>
+
+    <script>
+      const invoke = window.__TAURI__.core.invoke;
+      const romSelect = document.getElementById("rom");
+      const playerSelect = document.getElementById("players");
+      const startButton = document.getElementById("start");
+      const stopButton = document.getElementById("stop");
+      const status = document.getElementById("status");
+      const pads = document.getElementById("pads");
+      const log = document.getElementById("log");
+
+      async function refreshRoms() {
+        const roms = await invoke("list_roms");
+        romSelect.innerHTML = "";
+        for (const rom of roms) {
+          const option = document.createElement("option");
+          option.value = rom.path;
+          option.textContent = rom.name;
+          romSelect.appendChild(option);
+        }
+        if (roms.length === 0) {
+          const option = document.createElement("option");
+          option.textContent = "No ROM found in Test Roms/";
+          romSelect.appendChild(option);
+        }
+        startButton.disabled = roms.length === 0;
+      }
+
+      async function refreshPads() {
+        const list = await invoke("list_pads");
+        pads.textContent =
+          list.length === 0
+            ? "Gamepads: none detected (keyboard fallback)."
+            : `Gamepads: ${list.join(", ")}`;
+      }
+
+      async function refreshState() {
+        const running = await invoke("session_running");
+        startButton.disabled = running;
+        stopButton.disabled = !running;
+        if (running) {
+          status.textContent = "Session running.";
+          const text = await invoke("session_log");
+          log.textContent = text;
+          log.scrollTop = log.scrollHeight;
+        }
+      }
+
+      startButton.addEventListener("click", async () => {
+        const rom = romSelect.value;
+        const players = Number(playerSelect.value);
+        try {
+          status.textContent = "Starting…";
+          const summary = await invoke("start_session", { rom, players });
+          status.textContent = summary;
+        } catch (error) {
+          status.textContent = `Start failed: ${error}`;
+        }
+        await refreshState();
+      });
+
+      stopButton.addEventListener("click", async () => {
+        await invoke("stop_session");
+        status.textContent = "Stopped.";
+        await refreshState();
+      });
+
+      refreshRoms();
+      refreshPads();
+      refreshState();
+      setInterval(refreshState, 1500);
+    </script>
+  </body>
+</html>

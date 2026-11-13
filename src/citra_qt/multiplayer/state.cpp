@@ -120,7 +120,6 @@ void MultiplayerState::OnNetworkStateChanged(const Network::RoomMember::State& s
     if (state == Network::RoomMember::State::Joined ||
         state == Network::RoomMember::State::Moderator) {
 
-        OnOpenNetworkRoom();
         status_icon->setPixmap(QIcon::fromTheme(QStringLiteral("connected")).pixmap(16));
         status_text->setText(tr("Connected"));
         leave_room->setEnabled(true);

@@ -938,8 +938,10 @@ void SetUserPath(const std::string& path) {
     if (!path.empty() && CreateFullPath(path)) {
         LOG_INFO(Common_Filesystem, "Using {} as the user directory", path);
         user_path = path;
-        g_paths.emplace(UserPath::ConfigDir, user_path + CONFIG_DIR DIR_SEP);
-        g_paths.emplace(UserPath::CacheDir, user_path + CACHE_DIR DIR_SEP);
+        // Assign rather than emplace: the default paths may already be seeded by an
+        // earlier GetUserPath(), and the split-screen fork sets this explicitly.
+        g_paths[UserPath::ConfigDir] = user_path + CONFIG_DIR DIR_SEP;
+        g_paths[UserPath::CacheDir] = user_path + CACHE_DIR DIR_SEP;
     } else {
 #ifdef _WIN32
         user_path = GetExeDirectory() + DIR_SEP USERDATA_DIR DIR_SEP;
@@ -1020,18 +1022,20 @@ void SetUserPath(const std::string& path) {
 #endif
     }
 
-    g_paths.emplace(UserPath::SDMCDir, user_path + SDMC_DIR DIR_SEP);
-    g_paths.emplace(UserPath::NANDDir, user_path + NAND_DIR DIR_SEP);
-    g_paths.emplace(UserPath::SysDataDir, user_path + SYSDATA_DIR DIR_SEP);
+    // Assignment rather than emplace: SetUserPath is re-callable (the split-screen
+    // fork points it at a per-slot directory after the defaults were seeded).
+    g_paths[UserPath::SDMCDir] = user_path + SDMC_DIR DIR_SEP;
+    g_paths[UserPath::NANDDir] = user_path + NAND_DIR DIR_SEP;
+    g_paths[UserPath::SysDataDir] = user_path + SYSDATA_DIR DIR_SEP;
     // TODO: Put the logs in a better location for each OS
-    g_paths.emplace(UserPath::LogDir, user_path + LOG_DIR DIR_SEP);
-    g_paths.emplace(UserPath::CheatsDir, user_path + CHEATS_DIR DIR_SEP);
-    g_paths.emplace(UserPath::DLLDir, user_path + DLL_DIR DIR_SEP);
-    g_paths.emplace(UserPath::ShaderDir, user_path + SHADER_DIR DIR_SEP);
-    g_paths.emplace(UserPath::DumpDir, user_path + DUMP_DIR DIR_SEP);
-    g_paths.emplace(UserPath::LoadDir, user_path + LOAD_DIR DIR_SEP);
-    g_paths.emplace(UserPath::StatesDir, user_path + STATES_DIR DIR_SEP);
-    g_paths.emplace(UserPath::IconsDir, user_path + ICONS_DIR DIR_SEP);
+    g_paths[UserPath::LogDir] = user_path + LOG_DIR DIR_SEP;
+    g_paths[UserPath::CheatsDir] = user_path + CHEATS_DIR DIR_SEP;
+    g_paths[UserPath::DLLDir] = user_path + DLL_DIR DIR_SEP;
+    g_paths[UserPath::ShaderDir] = user_path + SHADER_DIR DIR_SEP;
+    g_paths[UserPath::DumpDir] = user_path + DUMP_DIR DIR_SEP;
+    g_paths[UserPath::LoadDir] = user_path + LOAD_DIR DIR_SEP;
+    g_paths[UserPath::StatesDir] = user_path + STATES_DIR DIR_SEP;
+    g_paths[UserPath::IconsDir] = user_path + ICONS_DIR DIR_SEP;
     g_default_paths = g_paths;
 }
 

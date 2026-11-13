@@ -64,3 +64,19 @@ GIT-TAG
 
 # verify-release.sh downloads
 verify/
+
+# tools/diagrom build output
+/tools/diagrom/build/
+/tools/diagrom/out/
+/tools/diagrom/*.3dsx
+/tools/diagrom/*.elf
+/tools/diagrom/*.smdh
+
+# Test ROMs (never commit game images)
+Test Roms/
+*.3ds
+
+# Orchestrator runtime state
+/slots/
+/src-tauri/target/
+/src-tauri/gen/

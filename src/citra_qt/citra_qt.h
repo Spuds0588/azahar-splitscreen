@@ -123,6 +123,10 @@ class GMainWindow : public QMainWindow {
 
 public:
     void filterBarSetChecked(bool state);
+    /// Split-screen fork: join a room started by the orchestrator after boot.
+    void JoinRoom(const QString& nickname, const QString& host, u16 port);
+    /// Split-screen fork: append a measured fps/speed/frame-time line every second.
+    void EnableStatsLog(const QString& path);
 #ifdef _WIN32
     void SetCustomWindowsScrollbar();
 #endif

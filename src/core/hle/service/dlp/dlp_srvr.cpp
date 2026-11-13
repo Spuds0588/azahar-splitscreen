@@ -74,6 +74,12 @@ bool DLP_SRVR::CacheContentFileInMemory(u32 process_id) {
 
     auto title_info = fs->GetProgramLaunchInfo(process_id);
 
+    // Broadcast the title id even when the DLP child content is unreadable (trimmed
+    // ROMs have no such partition): clients filter beacons by it, and only content
+    // distribution actually needs the CIA.
+    memset(&title_broadcast_info, 0, sizeof(title_broadcast_info));
+    title_broadcast_info.title_id = (title_info->program_id & 0xFFFFFFFF) | DLP_CHILD_TID_HIGH;
+
     // get special content index. could have made a new
     // HLE func in FS, but this is so small that it
     // doesn't matter

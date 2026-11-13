@@ -45,6 +45,7 @@
 #include "citra_qt/bootmanager.h"
 #include "citra_qt/camera/qt_multimedia_camera.h"
 #include "citra_qt/camera/still_image_camera.h"
+#include <QFile>
 #include "citra_qt/citra_qt.h"
 #include "citra_qt/compatibility_list.h"
 #include "citra_qt/configuration/config.h"
@@ -110,6 +111,7 @@
 #include "core/file_sys/archive_source_sd_savedata.h"
 #include "core/frontend/applets/default_applets.h"
 #include "core/hle/service/am/am.h"
+#include "core/hle/service/cfg/cfg.h"
 #include "core/hle/service/fs/archive.h"
 #include "core/hle/service/nfc/nfc.h"
 #include "core/loader/loader.h"
@@ -558,6 +560,58 @@ GMainWindow::GMainWindow(Core::System& system_)
     if (!game_path.isEmpty()) {
         BootGame(game_path);
     }
+}
+
+void GMainWindow::EnableStatsLog(const QString& path) {
+    // The status bar normally consumes the perf counters; hand them to us instead.
+    status_bar_update_timer.stop();
+    auto* timer = new QTimer(this);
+    connect(timer, &QTimer::timeout, this, [this, path] {
+        if (!emu_thread) {
+            return;
+        }
+        const auto results = system.GetAndResetPerfStats();
+        QFile file(path);
+        if (!file.open(QIODevice::Append | QIODevice::Text)) {
+            return;
+        }
+        file.write(QStringLiteral("fps=%1 speed=%2 frame_ms=%3\n")
+                       .arg(results.game_fps, 0, 'f', 1)
+                       .arg(results.emulation_speed * 100.0, 0, 'f', 1)
+                       .arg(results.time_vblank_interval * 1000.0, 0, 'f', 2)
+                       .toUtf8());
+    });
+    timer->start(1000);
+}
+
+void GMainWindow::JoinRoom(const QString& nickname, const QString& host, u16 port) {
+    auto room_member = Network::GetRoomMember().lock();
+    if (!room_member) {
+        std::cout << "room: room member unavailable" << std::endl;
+        return;
+    }
+    room_member->BindOnStateChanged([](const Network::RoomMember::State& state) {
+        std::cout << "room: state " << static_cast<int>(state) << std::endl << std::flush;
+    });
+    room_member->BindOnError([](const Network::RoomMember::Error& error) {
+        std::cout << "room: error " << static_cast<int>(error) << std::endl << std::flush;
+    });
+    const std::string address = host.toStdString();
+    const std::string name = nickname.toStdString();
+
+    // The console name is what games show for this player (MK7's lobby, DLP beacons),
+    // and a fresh slot has none. Config blocks hold at most 10 UTF-16 units.
+    std::u16string console_name = Common::UTF8ToUTF16(name);
+    if (console_name.size() > 10)
+        console_name.resize(10);
+    Service::CFG::GetModule(system)->SetUsername(console_name);
+    std::cout << "console: username is now \"" << Service::CFG::GetUsername(system) << "\""
+              << std::endl;
+
+    room_member->Join(name, Service::CFG::GetConsoleIdHash(system), address.c_str(), port, 0,
+                      Service::CFG::GetConsoleMacAddress(system), "");
+    std::cout << "room: joining " << address << ':' << port << " as " << name << std::endl
+              << std::flush;
 }
 
 GMainWindow::~GMainWindow() {
@@ -4824,6 +4878,23 @@ int LaunchQtFrontend(int argc, char* argv[]) {
     SCOPE_EXIT({ MicroProfileShutdown(); });
 #endif
 
+    // Split-screen fork: per-slot user directory. It has to be applied before any config is
+    // read, which happens when GMainWindow constructs its QtConfig.
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (strcmp(argv[i], "--user") == 0) {
+            // Trailing separator: the derived paths are built by plain concatenation.
+            std::string user_dir = argv[i + 1];
+            if (user_dir.empty() || user_dir.back() != DIR_SEP_CHR) {
+                user_dir += DIR_SEP;
+            }
+            FileUtil::SetUserPath(user_dir);
+            std::cout << "user: " << FileUtil::GetUserPath(FileUtil::UserPath::UserDir)
+                      << std::endl
+                      << std::flush;
+            break;
+        }
+    }
+
     // Init settings params
     QCoreApplication::setOrganizationName(QStringLiteral("Azahar Developers"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("azahar_emu.org"));
@@ -4882,13 +4953,81 @@ int LaunchQtFrontend(int argc, char* argv[]) {
     system.RegisterMicPermissionCheck(&AppleAuthorization::CheckAuthorizationForMicrophone);
 #endif
 
+    // Split-screen fork: window placement for tiled sessions and room auto-join.
+    std::optional<QPoint> window_position;
+    std::optional<QSize> window_size;
+    bool borderless = false;
+    QString room_address;
+    QString player_name;
+    QString stats_path;
+    u16 room_port = 0;
+    for (int i = 1; i < argc; ++i) {
+        const bool has_value = i + 1 < argc && argv[i + 1][0] != '-';
+        if (strcmp(argv[i], "--position") == 0 && has_value) {
+            int x = 0;
+            int y = 0;
+            if (sscanf(argv[++i], "%d,%d", &x, &y) == 2) {
+                window_position = QPoint(x, y);
+            }
+        } else if (strcmp(argv[i], "--size") == 0 && has_value) {
+            int width = 0;
+            int height = 0;
+            if (sscanf(argv[++i], "%dx%d", &width, &height) == 2) {
+                window_size = QSize(width, height);
+            }
+        } else if (strcmp(argv[i], "--borderless") == 0) {
+            borderless = true;
+        } else if (strcmp(argv[i], "--join-room") == 0 && has_value) {
+            // Not "--room": citra_meta uses that to launch the room server binary.
+            const QString endpoint = QString::fromLocal8Bit(argv[++i]);
+            const int colon = endpoint.lastIndexOf(QLatin1Char(':'));
+            room_address = colon > 0 ? endpoint.left(colon) : endpoint;
+            room_port = colon > 0 ? endpoint.mid(colon + 1).toUShort() : 0;
+        } else if (strcmp(argv[i], "--player-name") == 0 && has_value) {
+            player_name = QString::fromLocal8Bit(argv[++i]);
+        } else if (strcmp(argv[i], "--stats") == 0 && has_value) {
+            stats_path = QString::fromLocal8Bit(argv[++i]);
+        }
+    }
+
+    if (borderless) {
+        // A tile is game-only: drop the chrome so the window can fit a 540 px slot.
+        main_window.setWindowFlag(Qt::FramelessWindowHint, true);
+        main_window.menuBar()->hide();
+        main_window.statusBar()->hide();
+    }
+
     main_window.show();
+
+    // Applied after show(): restoring the saved geometry and changing window flags
+    // both run on the way up and would otherwise win over --position/--size.
+    if (window_size) {
+        main_window.resize(*window_size);
+    }
+    if (window_position) {
+        main_window.move(*window_position);
+    }
 
     QObject::connect(&app, &QGuiApplication::applicationStateChanged, &main_window,
                      &GMainWindow::OnAppFocusStateChanged);
 
     // Process any pending events before executing the app (prevents freeze-on–boot on macOS)
     app.processEvents();
+
+    if (!stats_path.isEmpty()) {
+        main_window.EnableStatsLog(stats_path);
+    }
+
+    if (!room_address.isEmpty() && room_port != 0) {
+        // Joining while the game is still booting leaves the console identity empty and
+        // the room rejects the member; wait for the boot to settle first.
+        const QString nickname =
+            player_name.isEmpty() ? QStringLiteral("Player") : player_name;
+        QTimer::singleShot(4000, &main_window, [&main_window, nickname, room_address,
+                                                room_port] {
+            main_window.JoinRoom(nickname, room_address, room_port);
+        });
+    }
 
     int result = app.exec();
     return result;

@@ -14,6 +14,15 @@
 namespace CitraCLI {
 
 bool CheckForOptions(const char* optstring, int argc, char* argv[]) {
+    // Long options belong to the Qt frontend (--user, --room, --size, ...). GNU
+    // getopt would otherwise split "--size" into -s -i -z -e and match the
+    // compression CLI's short options.
+    for (int i = 1; i < argc; ++i) {
+        if (argv[i][0] == '-' && argv[i][1] == '-') {
+            return false;
+        }
+    }
+
     const int original_opterr = opterr;
     opterr = 0; // Temporarily suppress invalid option messages
 

@@ -19,6 +19,8 @@ pub struct Rom {
 pub struct Session {
     room: Child,
     instances: Vec<Child>,
+    /// Optional single-window container that adopts the seat windows (X11 only).
+    viewer: Option<Child>,
     pub log_path: PathBuf,
     pub summary: String,
 }
@@ -37,6 +39,11 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
+        // Stop the container first: it reparents the seat windows back to the
+        // root window on a clean exit, so the instances keep their viewers.
+        if let Some(mut viewer) = self.viewer.take() {
+            terminate(&mut viewer);
+        }
         for child in &mut self.instances {
             terminate(child);
         }
@@ -202,15 +209,30 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
         sleep(Duration::from_millis(2000)); // staggered, as the sisters' notes require
     }
 
+    let viewer = spawn_viewer(&root, &session_dir);
+    if viewer.is_some() {
+        log(&log_path, "viewer: single-window container adopted the seats");
+    }
+
     Ok(Session {
         room,
         instances,
+        viewer,
         log_path,
         summary: format!(
             "{} players in room splitscreen on port {port}",
             slots.len()
         ),
     })
+}
+
+/// Adopt the seat windows into one window when the optional container is built.
+fn spawn_viewer(root: &Path, session_dir: &Path) -> Option<Child> {
+    let viewer = root.join("tools/quadview/build/azahar-quadview");
+    if !viewer.exists() {
+        return None;
+    }
+    spawn(&viewer, &[], root, &session_dir.join("quadview.log")).ok()
 }
 
 fn spawn(bin: &Path, args: &[String], cwd: &Path, log_path: &Path) -> io::Result<Child> {

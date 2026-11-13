@@ -473,3 +473,41 @@ all; without it the clients stay connected to a network that stops advertising.
   focused instance. Hence: human drives, agent records. Bottom-screen taps for
   the 959x516 tile, if ever needed: menu rows y≈396/426/456, "Create a Group"
   at (899,484), group slot 1 at (880,392).
+
+## 2026-11-13 (10) — One window: the seats are adopted, not composited
+
+**Verdict: four seats now look and behave like one application window, with no
+change to how the emulator renders.**
+
+- **`tools/quadview/`** (new, standalone Qt6/Xlib project, ~190 lines): finds the
+  emulator's own windows (`WM_CLASS == "Azahar"`, so the orchestrator's window is
+  not a candidate), sorts them by geometry, and reparents them into a frameless
+  top-level window with `QWindow::fromWinId()` + `createWindowContainer()`. One
+  window, one taskbar entry, one alt-tab. Each instance still renders its own
+  frames into its own GL context, so there is no compositing hop and no added
+  latency.
+- **Input:** an embedded window is a child, so the window manager never gives it
+  the keyboard. The container polls the pointer and hands X input focus to the
+  seat under it (`XGetInputFocus` guard, 200 ms timer). Verified: pointer over
+  tile 1 → `xdotool getwindowfocus` returns the emulator window `0x2400013`, and
+  START reaches that seat only (its screen went to the main menu while the other
+  three stayed on the attract demo).
+- **Automatic:** `process.rs` spawns the container after the seats when the
+  binary exists, logs `viewer: single-window container adopted the seats`, and
+  tears it down first on Stop (it reparents the children back to the root window
+  on a clean exit, so the seats survive a container restart).
+- **Measured with the container up:** 1920x1034 window, tiles 959x516 with the
+  1 px gutter, 59.0-60.0 fps and 98.6-100.4 % speed on all four seats. One
+  31.0 fps sample appeared exactly while a capture ran; steady state is 60.
+- **Limits, stated plainly:** X11/XWayland only (both the emulator and the
+  container need `QT_QPA_PLATFORM=xcb`); XEmbed is deprecated, so this is a
+  stopgap, not the destination. The real single-window answer is the in-process
+  quad-system (four `Core::System` in one process, thread-local
+  `System::GetInstance()`, one composited frame) which is also the libretro
+  shape.
+- **Incidental finding:** `Test Roms/` now holds six proper `.3ds` dumps.
+  Kirby's Extra Epic Yarn fails to load with
+  `Failed to determine system mode (Error 8)` / "Encrypted application" — the
+  dump is still encrypted and the slots carry no `aes_keys.txt`/`seeddb.bin`.
+  The orchestrator happily launched four seats into that dead end; a pre-flight
+  "this ROM did not boot" check belongs in the QA loop.

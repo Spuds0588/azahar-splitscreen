@@ -80,3 +80,5 @@ Test Roms/
 /slots/
 /src-tauri/target/
 /src-tauri/gen/
+# single-window container build
+/tools/quadview/build/

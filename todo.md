@@ -123,6 +123,14 @@ touch are playability polish and may slip to Milestone 4.
       with min/avg/max and an fps<55 list. Built for human-driven sessions.
 - [ ] Soak a human-driven 4P session with the sampler running (race, several
       races, pause/exit) and triage whatever the report flags.
+- [x] **One window** — `tools/quadview` adopts the four seat windows (XEmbed,
+      X11/XWayland), spawned and torn down by the orchestrator. Verified: one
+      window, four 959x516 tiles, 59-60 fps, keyboard/touch follow the pointer.
+- [ ] **In-process quad-system spike** (the real destination, also the libretro
+      shape): four `Core::System` in one process, `GetInstance()` thread-local,
+      one composited frame. Go/no-go gate for dropping the four-process design.
+- [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted
+      dump with no keys) instead of leaving four error dialogs on screen.
 - [ ] Resolution policy: 1× for 3–4, 2× for 2, no per-game overrides unless a
       game is broken.
 

@@ -192,12 +192,12 @@ touch are playability polish and may slip to Milestone 4.
       left 0 processes/rings/sockets. Evidence in `history.md` (24). A fresh slot's "No extra
       data found" prompt is now cleared without a player: `clear_boot_prompt` taps each seat
       three times after the viewer starts (history (25)).
-- [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted
-      dump with no keys) instead of leaving four error dialogs on screen.
-      Observed 2026-11-14: in the one-window spike this leaves four black tiles with only
-      a log line (`seatN failed to load the ROM (status 5)`, loader `ErrorEncrypted`);
-      the stock frontend shows an "Encrypted application" dialog. Four of the six test
-      ROMs hit it. See `history.md` (23).
+- [x] **Pre-flight ROM check** (2026-11-14): a dump the loader rejects (encrypted, no keys)
+      now stops the session before any window shows tiles - seats and room are torn down, the
+      viewer opens in a notice mode naming the ROM and saying nothing was started, and
+      `--start` exits 1 (`history.md` (26)). Before this the only trace was a terminal line,
+      and the stock frontend's alternative is four black tiles. Four of the six test ROMs
+      hit it (`history.md` (23)).
 - [ ] Resolution policy: 1× for 3–4, 2× for 2, no per-game overrides unless a
       game is broken.
 

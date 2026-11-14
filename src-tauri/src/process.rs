@@ -248,7 +248,7 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
     // A dump the emulator cannot boot (still encrypted, no keys in the slot)
     // fails within a second of loading. Catch it here instead of leaving the
     // couch with four error dialogs on screen.
-    if let Err(message) = check_boots(&slots, &instance_logs, Duration::from_secs(6)) {
+    if let Err(message) = check_boots(&slots, &instance_logs, Duration::from_secs(6), &rom_path) {
         for child in &mut instances {
             terminate(child);
         }
@@ -286,6 +286,23 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
     })
 }
 
+/// A notice in the same single window, for a session that never started (an
+/// encrypted dump): the reason on the TV instead of a terminal nobody reads.
+pub fn show_message(message: &str) -> Option<Child> {
+    let root = repo_root();
+    let viewer = root.join("tools/viewer/build/azahar-viewer");
+    if !viewer.exists() {
+        return None;
+    }
+    spawn(
+        &viewer,
+        &["--message".into(), message.into()],
+        &root,
+        &root.join("slots/viewer.log"),
+    )
+    .ok()
+}
+
 /// The single window. Each seat contributes its frame ring and the socket its
 /// input goes to; the viewer never learns anything else about the session.
 fn spawn_viewer(
@@ -308,8 +325,14 @@ fn spawn_viewer(
 
 /// Fail fast when a seat could not load the ROM at all. The loader's verdict is
 /// in the slot's own `azahar_log.txt`; the stdout log only carries frontend
-/// chatter.
-fn check_boots(slots: &[slots::Slot], logs: &[PathBuf], timeout: Duration) -> Result<(), String> {
+/// chatter. Nothing is left running on failure, and the message names the ROM
+/// so it can be shown in the one window as-is.
+fn check_boots(
+    slots: &[slots::Slot],
+    logs: &[PathBuf],
+    timeout: Duration,
+    rom: &Path,
+) -> Result<(), String> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         for (slot, path) in slots.iter().zip(logs) {
@@ -320,10 +343,14 @@ fn check_boots(slots: &[slots::Slot], logs: &[PathBuf], timeout: Duration) -> Re
             if text.contains("Failed to determine system mode") ||
                 text.contains("Encrypted applications are not supported")
             {
+                let name = rom
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_else(|| rom.display().to_string());
                 return Err(format!(
-                    "This ROM did not boot — {} reports an encrypted or unsupported \
-                     application. Nothing was started; pick a decrypted dump.",
-                    path.file_stem().unwrap_or_default().to_string_lossy()
+                    "This game did not boot.\n\n{name}\n\nThe emulator reports an encrypted or \
+                     unsupported application, and nothing was started. Pick a decrypted dump \
+                     (or put the console's keys in the slot) and start again."
                 ));
             }
         }

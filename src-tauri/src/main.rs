@@ -126,6 +126,19 @@ fn run_headless(rom: &str, players: u8) -> ! {
         Ok(session) => session,
         Err(error) => {
             eprintln!("{error}");
+            // Nothing is running: put the reason in the one window instead of
+            // dropping back to a terminal the player may not even see.
+            let mut window = process::show_message(&error);
+            if let Some(child) = window.as_mut() {
+                while !TERMINATE.load(std::sync::atomic::Ordering::SeqCst) {
+                    if let Ok(Some(_)) = child.try_wait() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+                let _ = child.kill();
+                let _ = child.wait();
+            }
             std::process::exit(1);
         }
     };

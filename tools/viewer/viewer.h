@@ -48,7 +48,11 @@ class Viewer : public QWidget {
     Q_OBJECT
 
 public:
-    explicit Viewer(QVector<Seat> seats, QWidget* parent = nullptr);
+    /// `message` turns the window into a plain notice: no rings, no tiles, just
+    /// the text. The orchestrator uses it when a session could not start (an
+    /// encrypted dump), so the reason is on screen instead of four black tiles.
+    explicit Viewer(QVector<Seat> seats, const QString& message = QString(),
+                    QWidget* parent = nullptr);
 
     /// Write the composited window to `path` once the frame counter reaches
     /// `frame`, then quit. QA-only: it is how the composite is checked on a
@@ -96,6 +100,7 @@ private:
     quint64 presented_ = 0;
     quint64 paint_ns_ = 0;
     quint64 ticks_ = 0;
+    QString message_;
     QString dump_path_;
     quint64 dump_frame_ = 0;
     qint64 last_stats_ms_ = 0;

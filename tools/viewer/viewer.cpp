@@ -56,9 +56,14 @@ void log(const QString& line) {
 
 } // namespace
 
-Viewer::Viewer(QVector<Seat> seats, QWidget* parent) : QWidget(parent), seats_(std::move(seats)) {
+Viewer::Viewer(QVector<Seat> seats, const QString& message, QWidget* parent)
+    : QWidget(parent), seats_(std::move(seats)), message_(message) {
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
+    clock_.start();
+    if (!message_.isEmpty()) {
+        return; // a notice paints once and waits for Esc; nothing to poll
+    }
     setCursor(Qt::BlankCursor);
 
     // Paint on our own clock at roughly 60 Hz. The swap interval paces a healthy
@@ -69,7 +74,6 @@ Viewer::Viewer(QVector<Seat> seats, QWidget* parent) : QWidget(parent), seats_(s
         update();
     });
     frame_timer_.start(16);
-    clock_.start();
     for (auto& seat : seats_) {
         open_ring(seat);
     }
@@ -193,6 +197,23 @@ void Viewer::paintEvent(QPaintEvent*) {
     QPainter painter(this);
     painter.fillRect(rect(), QColor(15, 15, 18));
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+    if (!message_.isEmpty()) {
+        QFont font = painter.font();
+        font.setPixelSize(std::max(16, height() / 34));
+        painter.setFont(font);
+        painter.setPen(QColor(230, 232, 238));
+        painter.drawText(rect().adjusted(width() / 8, height() / 3, -width() / 8, -height() / 3),
+                         Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, message_);
+        font.setPixelSize(std::max(12, height() / 64));
+        painter.setFont(font);
+        painter.setPen(QColor(139, 147, 167));
+        painter.drawText(rect().adjusted(0, height() * 7 / 10, 0, 0),
+                         Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("Press Esc to close."));
+        ++presented_;
+        paint_ns_ += clock_.nsecsElapsed() - started;
+        return;
+    }
 
     for (int i = 0; i < seats_.size(); ++i) {
         Seat& seat = seats_[i];

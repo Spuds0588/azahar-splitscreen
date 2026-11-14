@@ -1115,3 +1115,31 @@ extdata directory exists again in all four slots. SIGTERM: 0 processes, 0 rings,
 25 s (`957c05/21863d/89df5e/168b29`) and 40 s (`d7877f/4eda7e/3dccb9/e04b5d`), the usual
 all-black transition at 55 s, content again at 75 s (`8ef59f/a095d8/918dc2/ad8054`), 62.6 fps
 throughout, teardown 0/0/0.
+
+## 2026-11-14 (26) - A dump that cannot boot says so in the one window
+
+`check_boots` already caught an encrypted dump within a few seconds and tore the session
+down, but the only trace was a line in a terminal the player is not reading; the stock
+frontend's alternative (four black tiles, or an "Encrypted application" dialog per window)
+is what this replaces. Now the failure names the ROM, and the last step of `--start` opens the
+same viewer in a notice mode: no rings, no tiles, the reason centred on the TV, `Esc` closes,
+exit code 1.
+
+- `tools/viewer`: `--message "<text>"` builds a `Viewer` with no seats. It paints a dark
+  window, the text word-wrapped and centred, and a grey "Press Esc to close."; the frame
+  timer is not started, so a notice costs nothing. Escape already closes the window.
+- `process.rs`: `check_boots` takes the ROM path, so the message reads `This game did not
+  boot.\n\n<file>\n\nThe emulator reports an encrypted or unsupported application, and
+  nothing was started...`; new `show_message` spawns the viewer with `--message`.
+- `main.rs`: `--start` prints the same text and, when there is a viewer binary, holds that
+  window open until `Esc`/SIGTERM before exiting 1. The picker path is unchanged: the
+  command returns the string and the UI shows it in its status line.
+
+**Evidence, all four seats.** `run.sh --start "New Super Mario Bros. 2 (USA) (En,Fr,Es)
+Decrypted.3ds" --players 4`: stdout is the notice text above, the window (1920x1034,
+captured with `xwd`) shows it with the file name and the keys hint, and `ps` holds only the
+orchestrator and that window - the four seats and the room are already gone. SIGTERM:
+`EXIT=1`, 0 processes, 0 rings, 0 sockets. A mistyped ROM name takes the same path with
+`ROM not found: <path>`, so a bad path is on screen too. MK7 afterwards: four distinct rings
+(`635e84/62a0dc/0b9f03/3f1a81`, 88 values each) at 62.5 fps, `EXIT=0`, 0 leftovers - the
+normal path is untouched.

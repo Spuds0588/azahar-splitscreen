@@ -75,7 +75,8 @@ profile is fine and being in one process is what ends the seat.
 ## Input, measured end to end
 
 The gap this closes: earlier passes could not show that a tap reaches a seat's guest.
-It now does, and the result is a guest-side refusal, not a broken path.
+It now does, it is consumed by a guest that reads the touch panel, and the title
+responds on a screen that is touch-operable.
 
 **Delivery, four seats in one process.** A tap is a datagram to that seat's socket
 (`type 3` = touch press at framebuffer x,y, `type 5` = release); `Shutdown` of the
@@ -111,35 +112,40 @@ the same static frame as the other three, and SIGTERM again leaves 0 processes, 
    `engine:emu_window` still points at the first window, so single-window configs and
    the four-process design are unchanged.
 
-**The guest ignores it.** Four touch targets on Mario Kart 7, each delivered (HID
-receipt logged for the target seat's System, no rejection by the layout):
+**A homebrew responder proves the path.** `tools/touchprobe` (`tools/touchprobe/out/`,
+built with `tools/touchprobe/build.sh`) draws exactly what libctru reads from the
+emulated panel, so it is a title that responds by construction. Run in a seat, before
+a tap it shows `x=0 y=0 held=0 presses=0`; after one datagram `(200,360)` it shows
+`x=160 y=120 held=0 presses=1` (bottom screen `(40,240)-(360,480)`, so panel
+`x=(200-40)=160`, `y=(360-240)=120`), and the ring goes `2a30b3b2 -> 2f08c5e4` and
+stays. A second tap at `(120,340)` reads back `x=80 y=100 presses=1`. Re-run on the
+stripped build gives the same result, so no instrumentation is needed to reproduce it.
 
-| screen | tap (frame coords) | HID receipt (bottom-screen px) | result |
-| --- | --- | --- | --- |
-| Mii "no Mii characters" dialog, OK button | `(200,400)` | `(160,160)` | dialog stays |
-| engine class, 150cc row | `(200,390)` | `(160,150)` | 50cc stays selected |
-| mode menu, Time Trials row, hold + move + release | `(200,300)` | `(160,60)` | Grand Prix stays selected |
-| character grid, Yoshi tile | `(330,275)` | `(290,35)` | grid unchanged |
+**Entry timing is identical for the games.** HID logs 192 pressed entries for a 0.8 s
+hold in both cases - one every ~1.1 M ticks, ~4.1 ms, 240 Hz - with the coordinates
+above and no gaps. So timing is not what separated MK7 from a responding title.
 
-Each screen was sampled for 1.5-3 s after the tap: the published hash changes only
-with the animated top screen, never with the tap. The control on the same seat:
-`A` (key 65) and `START` (77) advance four screens (dialog -> logo -> character grid
--> engine class -> mode menu), so the guest is running and consumes buttons.
+**Mario Kart 7 takes the touch where the target is touch-operable.** On the kart-parts
+screen, a tap at `(330,275)` (HID `(290,35)`) moved the selection from the wheels
+column to the glider column and the top screen changed from `Normal` to `Super Glider`;
+hashes `bb95a2d9 -> cdf42ef0 -> b379ada1` with no key sent between the dumps.
 
-**Recorded as a distinct input-model blocker (the "b" outcome):** a tap addressed to
-one seat's socket reaches that seat's emulation, and only that seat's, but this title
-does not act on synthetic touch on any screen tried - so per-seat *touch* control
-cannot be validated with MK7, and the PRD's right-stick virtual touch cursor has no
-demonstrated path in this build yet. Two neighbouring limits, measured the same way:
+**The earlier "guest ignores touch" result is retracted.** Those four taps were
+mis-targeted or aimed at screens that only take buttons: the 150cc tap at panel `y=150`
+is below the 150cc row (rows sit at `y≈25/75/125`); the Mii dialog's OK answers to
+A/START; the mode-menu tap only highlights a row; and the run recorded as "character
+grid" was actually on the engine-class screen, so the grid was never tapped. Nothing
+about the input path was wrong: touch is per-seat and consumed.
+
+Two limits remain, measured the same way:
 
 - **Keys cannot be per-seat.** `ApplyForwardedInput` presses `InputCommon::GetKeyboard()`,
   a process-global, so a forwarded key moves every seat at once; only touch is
   addressable per seat today.
 - **A per-seat picture only exists at one seat.** With 2 seats both rings publish a
   blank frame (uniform, 2 distinct byte values); with 1 seat the ring carries the real
-  MK7 screen (88 distinct values). Sequence numbers keep advancing at 53-57 fps either
-  way, so the four-seat visual comparison in the done-bar cannot be made yet, and the
-  blank-frame cause (multi-seat readback) is unmeasured.
+  screen (88 distinct values). Sequence numbers keep advancing at 53-57 fps either way,
+  so the four-seat visual comparison in the done-bar cannot be made yet.
 
 ## Conditions for a go
 
@@ -149,8 +155,8 @@ demonstrated path in this build yet. Two neighbouring limits, measured the same 
 - Make keys per-seat: touch is per-System now (see above), keys are not -
   `InputCommon::GetKeyboard()` is file-scope state in `input_common`, so a forwarded
   key still moves every seat.
-- Find out why MK7 ignores delivered touch, or validate the path with a title that
-  consumes it; and why a ring carries a real picture at one seat but a blank one at two.
+- Find out why a ring carries a real picture at one seat but a blank one at two; that
+  is the last thing between this spike and a four-seat visual check.
 - Keep the loop that is already proven: thread-local `Core::System::GetInstance`,
   one GL context per window, one ring and one socket per seat, one compositing window.
 
@@ -168,8 +174,10 @@ DISPLAY=:1 QT_QPA_PLATFORM=xcb QT_SCALE_FACTOR=1 QT_ENABLE_HIGHDPI_SCALING=0 \
 # s.sendto(struct.pack('<B3xIHH', 5, 0, 0, 0), '/tmp/azsh-inproc-p0.sock')         # release
 # frames live in ring slots: header 64 B, w@8 h@12 stride@16 slots@24 seq@32,
 # newest frame at 64 + ((seq-1) % slots) * h * stride (RGBA8888, bottom-up)
-# the receipt lines quoted above came from temporary fprintf()s in
-# GRenderWindow::ApplyForwardedInput, the touch case there, and HID's touch block;
-# they are removed from the tree - re-add them to re-measure delivery.
+# the HID entry counts quoted above came from temporary fprintf()s in HID's touch
+# block; they are removed from the tree - re-add them to re-measure timing. The
+# responder itself needs no instrumentation:
+#   tools/touchprobe/build.sh
+#   ./build/bin/Release/azahar --inproc-seats 1 tools/touchprobe/out/touchprobe.3dsx
 # PY
 ```

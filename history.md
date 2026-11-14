@@ -841,3 +841,23 @@ two or more seats every ring publishes a blank frame (1 seat: real picture), so 
 per-seat visual delta cannot be compared in a four-seat run yet.
 
 Verdict unchanged: **no-go** for one-process seats. See `plans/in-process-seats.md`.
+
+## 2026-11-14 (19) - MK7 does take the synthetic touch; the earlier negative was aim
+
+Built `tools/touchprobe`, a devkitARM homebrew that prints what libctru reads from the
+emulated touch panel, so the comparison had a title that responds by construction.
+Driven through a seat's socket it reads back `x=160 y=120 presses=1` for a tap at
+`(200,360)` and `x=80 y=100` for `(120,340)`, and its ring content changes and stays -
+on the stripped build too.
+
+HID entry timing is the same in both cases: 192 pressed entries for a 0.8 s hold, one
+every ~4.1 ms (240 Hz), correct panel coordinates, no gaps. With the path proven, a tap
+on Mario Kart 7's kart-parts screen moved the selection from the wheels column to the
+glider column and changed the top screen from "Normal" to "Super Glider".
+
+So the earlier "MK7 ignores synthetic touch" finding was a targeting error, not an
+input-model blocker: the 150cc tap landed below the 150cc row, the Mii dialog's OK takes
+A/START, the mode-menu tap only highlights, and the run logged as a character-grid tap
+was actually on the engine-class screen. Retracted in `plans/in-process-seats.md`; the
+two real limits left are process-global keys and blank rings when two or more seats
+publish.

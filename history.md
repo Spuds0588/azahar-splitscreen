@@ -1020,3 +1020,70 @@ Ran the four-seat spike over every ROM in `Test Roms/` (80 s each: boot, four sa
 during fades, never blank), window 1280x720 IsViewable throughout, four distinct tiles at
 the end (`044d4a/f2ee1c/d514ae/3370de`, means 81/67/61/62), SIGTERM -> exit 0,
 `stopped 4 seats`, 0 rings, 0 sockets. The heavier 2 GB ROM is as stable as MK7.
+
+## 2026-11-14 (24) - Production path: `run.sh --start` soaks MK7 then MHS in one window
+
+Ran the orchestrator's per-slot path (not the in-process harness) on `DISPLAY=:1`:
+`./run.sh --start "<rom>" --players 4`, i.e. four headless seats with their own ring and
+input socket, one `azahar-viewer` window, `azahar-room`. Two fixes were needed first.
+
+**Fix 1 - the viewer could not present (GL -> QPainter).** With the old `QOpenGLWidget`
+compositor the viewer logged `presented_fps=1.0` while every seat ran at 60 fps: this
+session's compositor throttles `glXSwapBuffers` to about 1 Hz (`glxgears` 1.0-1.8 FPS,
+history 15). `Viewer` is now a plain `QWidget` that paints each seat's `QImage` with
+`QPainter::drawImage`; ring reading, tile math, input forwarding and `--dump` are
+unchanged. Same session, same seats: `presented_fps` 60.7-62.7, `paint_ms` 4.7-11.9.
+
+**Fix 2 - LargeScreen broke Monster Hunter Stories.** Every MHS seat showed the 3DS
+system error dialog (ring md5 `12b159`, 197 byte values, mean 5) and ignored input, while
+the same slots ran MK7 fine. Bisected against the slot's own seed data in throwaway user
+dirs with the orchestrator's exact minimal `qt-config.ini`:
+
+| seed in the temp dir | layout | ring | result |
+| --- | --- | --- | --- |
+| slot config + Mii DB | 2 (LargeScreen) | 480x240, `12b159` | system error dialog |
+| slot config, Mii DB removed | 2 | 480x240, `12b159` | same - the Mii seed is innocent |
+| slot config + extdata `metadata` | 2 | 480x240, `12b159` | same - not the extdata archive |
+| minimal config | 2 | 480x240, `12b159` | same |
+| minimal config | 0 (default) | 400x480, `7bee81` | game boots and renders |
+
+`slots::prepare` therefore writes `layout_option=0` (top screen above the touch screen)
+with a comment naming MHS. Cost: the top screen is 431x259 in a 960x517 tile instead of
+the full tile, and the touch screen is visible, which is what a game with touch-only
+menus needs anyway.
+
+**MK7, 290 s, four seats.** 6 processes (4x `azahar`, `azahar-room`, `azahar-viewer`),
+RSS 3 509 MB, rings 400x480 (stride 1600) with 85-88 distinct byte values:
+
+| t (s) | ring seq 1..4 | md5 1..4 | viewer |
+| --- | --- | --- | --- |
+| 120 | 1004 / 825 / 745 / 653 | `e2dedd / c9e104 / f84ae9 / 424bdb` | 60.7 fps |
+| 260 | 2004 / 1757 / 1720 / 1626 | `22f905 x3 / 3626ec` (transition: three seats black at once) | 62.6 fps |
+| 280 | 2849 / 2578 / 2563 / 2445 | `fc75a1 / b7350f / 96f880 / 4ac0c1` | 61.9 fps |
+| 290 | 3387 / 3131 / 3118 / 3000 | `3319c4 / c311c3 / 94d582 / eff56f` | 62.5 fps |
+
+SIGTERM at t=290: 0 processes, 0 rings, 0 sockets, `slots/*.log` stops at the spawn
+lines, no window left on `:1`.
+
+**ROM swap into MHS, 345 s, same four slots.** Re-attach after the teardown worked with
+no slot cleanup: 4 seats, rings 400x480, 85-88 distinct values, viewer 62.5 fps, RSS
+2 889 MB. Two behaviours worth recording:
+
+- A fresh slot shows the 3DS extdata prompt **"No extra data found. New extra data will
+  be created."** on the bottom screen before MHS boots. It is touch-only: forwarded keys
+  do nothing, one tap at frame (160,395) dismisses it, and the viewer's input path is
+  confirmed end to end (each tap changes that seat's ring md5, other seats unaffected).
+  It appears once per slot, so the first session per slot needs one tap per seat.
+- After the prompt the four seats diverge on their own: t=300 s rings
+  `2c65fd / 26c561 / 26c561 / 26c561` (seat 1 booted first), t=345 s
+  `b6c483 / 9d822d / dd90ad / 7c1845` at seq 14 738 / 15 033 / 14 077 / 15 076.
+
+SIGTERM at t=345: 0 processes, 0 rings, 0 sockets.
+
+**Capture caveat for future sessions.** `xwd -id <viewer>` on this compositor returns the
+unredirected surface: at one point all four tiles read near-black (mean 28) while
+`azahar-viewer --dump` of the same rings showed the MHS dialog in all four. `xwd -root`
+fails with `BadMatch`. Use the viewer's own `--dump` for composition evidence and `xwd`
+only as a smoke test; the tile-vs-ring pixel diff computed from `xwd` was 43-104 even when
+the diagonal (own seat) won every time, because the image is scaled 1.077x and the ring
+advances during the ~0.2 s between capture and read.

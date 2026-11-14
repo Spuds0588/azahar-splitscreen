@@ -3,7 +3,7 @@
 #include <QCursor>
 #include <QKeyEvent>
 #include <QMouseEvent>
-#include <QOpenGLContext>
+#include <QPainter>
 
 #include <algorithm>
 #include <cstring>
@@ -56,7 +56,7 @@ void log(const QString& line) {
 
 } // namespace
 
-Viewer::Viewer(QVector<Seat> seats, QWidget* parent) : QOpenGLWidget(parent), seats_(std::move(seats)) {
+Viewer::Viewer(QVector<Seat> seats, QWidget* parent) : QWidget(parent), seats_(std::move(seats)) {
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
     setCursor(Qt::BlankCursor);
@@ -70,16 +70,12 @@ Viewer::Viewer(QVector<Seat> seats, QWidget* parent) : QOpenGLWidget(parent), se
     });
     frame_timer_.start(16);
     clock_.start();
+    for (auto& seat : seats_) {
+        open_ring(seat);
+    }
 }
 
 Viewer::~Viewer() {
-    makeCurrent();
-    for (auto& seat : seats_) {
-        if (seat.tex != 0) {
-            glDeleteTextures(1, &seat.tex);
-        }
-    }
-    doneCurrent();
     for (auto& seat : seats_) {
         if (seat.base != nullptr) {
             munmap(seat.base, static_cast<size_t>(seat.size));
@@ -138,7 +134,6 @@ void Viewer::open_ring(Seat& seat) {
     seat.slot_bytes = header->slot_bytes;
     seat.canvas = QImage(static_cast<int>(seat.width), static_cast<int>(seat.height),
                          QImage::Format_ARGB32);
-    seat.uploaded = false;
     log(QStringLiteral("viewer: ring %1 is %2x%3, %4 slots")
             .arg(seat.ring_name)
             .arg(seat.width)
@@ -172,63 +167,12 @@ bool Viewer::grab_frame(Seat& seat) {
     }
     seat.last_seq = seq;
     ++seat.frames;
-    seat.uploaded = false;
     return true;
 }
 
 // ---------------------------------------------------------------------------
-// GL
+// Painting
 // ---------------------------------------------------------------------------
-
-void Viewer::initializeGL() {
-    initializeOpenGLFunctions();
-    glClearColor(0.06f, 0.06f, 0.07f, 1.0f);
-
-    program_.addShaderFromSourceCode(QOpenGLShader::Vertex, R"(
-        #version 330 core
-        layout(location = 0) in vec2 a_pos;
-        uniform vec4 u_rect;
-        out vec2 v_uv;
-        void main() {
-            vec2 p = u_rect.xy + a_pos * u_rect.zw;
-            gl_Position = vec4(p, 0.0, 1.0);
-            v_uv = vec2(a_pos.x, 1.0 - a_pos.y);
-        }
-    )");
-    program_.addShaderFromSourceCode(QOpenGLShader::Fragment, R"(
-        #version 330 core
-        in vec2 v_uv;
-        uniform sampler2D u_tex;
-        uniform int u_solid;
-        uniform vec4 u_color;
-        out vec4 frag;
-        void main() {
-            frag = u_solid == 1 ? u_color : texture(u_tex, v_uv);
-        }
-    )");
-    if (!program_.link()) {
-        log(QStringLiteral("viewer: shader link failed: %1").arg(program_.log()));
-    }
-
-    vao_.create();
-    vao_.bind();
-    const GLfloat quad[] = {0.f, 0.f, 1.f, 0.f, 1.f, 1.f, 0.f, 1.f};
-    quad_.create();
-    quad_.bind();
-    quad_.allocate(quad, sizeof(quad));
-    program_.enableAttributeArray(0);
-    program_.setAttributeBuffer(0, GL_FLOAT, 0, 2, 2 * sizeof(GLfloat));
-    vao_.release();
-
-    for (auto& seat : seats_) {
-        open_ring(seat);
-    }
-    log(QStringLiteral("viewer: GL %1 | %2 seats | window %3x%4")
-            .arg(QString::fromLatin1(reinterpret_cast<const char*>(glGetString(GL_VERSION))))
-            .arg(seats_.size())
-            .arg(width())
-            .arg(height()));
-}
 
 QRect Viewer::tile_rect(int index) const {
     const int count = static_cast<int>(seats_.size());
@@ -244,12 +188,11 @@ QRect Viewer::tile_rect(int index) const {
     return {column * cell_width, row * cell_height, cell_width, cell_height};
 }
 
-void Viewer::paintGL() {
+void Viewer::paintEvent(QPaintEvent*) {
     const qint64 started = clock_.nsecsElapsed();
-    glClear(GL_COLOR_BUFFER_BIT);
-    program_.bind();
-    vao_.bind();
-    quad_.bind();
+    QPainter painter(this);
+    painter.fillRect(rect(), QColor(15, 15, 18));
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
     for (int i = 0; i < seats_.size(); ++i) {
         Seat& seat = seats_[i];
@@ -258,66 +201,23 @@ void Viewer::paintGL() {
         }
         grab_frame(seat);
 
-        // Letterbox the console screen inside its cell.
         const QRect tile = tile_rect(i);
         if (seat.fd < 0) {
             // No frames yet (still booting): a dim tile with a red border.
-            program_.setUniformValue("u_solid", 1);
-            program_.setUniformValue("u_color", QVector4D(0.10f, 0.05f, 0.05f, 1.0f));
-            program_.setUniformValue("u_rect", QVector4D(
-               2.f * tile.x() / width() - 1.f,
-               1.f - 2.f * (tile.y() + tile.height()) / height(),
-               2.f * tile.width() / width(), 2.f * tile.height() / height()));
-            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            painter.fillRect(tile, QColor(26, 13, 13));
+            painter.setPen(QColor(180, 40, 40));
+            painter.drawRect(tile.adjusted(0, 0, -1, -1));
             continue;
         }
 
         const QRect image = image_rect(i);
-
-        if (seat.tex == 0) {
-            glGenTextures(1, &seat.tex);
-            glBindTexture(GL_TEXTURE_2D, seat.tex);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<int>(seat.width),
-                         static_cast<int>(seat.height), 0, GL_BGRA, GL_UNSIGNED_BYTE, nullptr);
-            seat.uploaded = false;
-        }
-        if (!seat.uploaded) {
-            glBindTexture(GL_TEXTURE_2D, seat.tex);
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<int>(seat.width),
-                            static_cast<int>(seat.height), GL_BGRA, GL_UNSIGNED_BYTE,
-                            seat.canvas.constBits());
-            seat.uploaded = true;
-        }
-
-        const auto ndc = [&](const QRect& r) {
-            return QVector4D(2.f * r.x() / width() - 1.f,
-                             1.f - 2.f * (r.y() + r.height()) / height(),
-                             2.f * r.width() / width(), 2.f * r.height() / height());
-        };
-
-        // Selected seat: a light frame around its tile.
+        // Selected seat: a light frame behind the picture.
         if (i == selected_) {
-            program_.setUniformValue("u_solid", 1);
-            program_.setUniformValue("u_color", QVector4D(0.95f, 0.95f, 0.95f, 1.0f));
-            program_.setUniformValue("u_rect", ndc(image.adjusted(-3, -3, 3, 3)));
-            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            painter.fillRect(image.adjusted(-3, -3, 3, 3), QColor(242, 242, 242));
         }
-
-        program_.setUniformValue("u_solid", 0);
-        program_.setUniformValue("u_tex", 0);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, seat.tex);
-        program_.setUniformValue("u_rect", ndc(image));
-        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+        painter.drawImage(image, seat.canvas);
     }
 
-    vao_.release();
-    program_.release();
     ++presented_;
     if (!dump_path_.isEmpty() && presented_ >= dump_frame_) {
         dump_frame();
@@ -327,19 +227,14 @@ void Viewer::paintGL() {
 }
 
 void Viewer::dump_frame() {
-    const int w = width();
-    const int h = height();
-    QImage image(w, h, QImage::Format_ARGB32);
-    glPixelStorei(GL_PACK_ALIGNMENT, 4);
-    glReadPixels(0, 0, w, h, GL_BGRA, GL_UNSIGNED_BYTE, image.bits());
-    // glReadPixels hands back bottom-up rows; store the image top-down.
-    QImage flipped = image.mirrored(false, true);
-    if (!flipped.save(dump_path_)) {
-        log(QStringLiteral("viewer: could not write %1").arg(dump_path_));
+    const QString path = dump_path_;
+    dump_path_.clear(); // grab() repaints; do not recurse into this dump
+    const QImage image = grab().toImage();
+    if (!image.save(path)) {
+        log(QStringLiteral("viewer: could not write %1").arg(path));
     } else {
-        log(QStringLiteral("viewer: wrote %1 (%2x%3)").arg(dump_path_).arg(w).arg(h));
+        log(QStringLiteral("viewer: wrote %1 (%2x%3)").arg(path).arg(image.width()).arg(image.height()));
     }
-    dump_path_.clear();
     QTimer::singleShot(0, this, [this] { close(); });
 }
 

@@ -1,24 +1,25 @@
 // azahar-viewer — the single window of a split-screen session.
 //
-// One window, one GL context, one tile per seat. Each seat's emulator process
-// renders into a shared-memory frame ring; this reads the newest complete frame
-// from each ring and draws it. It never blocks on a seat: a tile whose ring has
-// not advanced simply keeps its previous frame.
+// One window, one tile per seat. Each seat's emulator process renders into a
+// shared-memory frame ring; this reads the newest complete frame from each ring
+// and draws it. It never blocks on a seat: a tile whose ring has not advanced
+// simply keeps its previous frame.
 //
 // Input goes the other way: keys and touch clicks are forwarded as datagrams to
 // the selected seat's socket, so the emulator instances stay headless.
+//
+// Painting is plain QPainter, not GL: this session's compositor throttles GL
+// swaps to ~1 Hz (glxgears measures 1-2 fps), while the same tiles painted with
+// QPainter run at the timer's rate. It is also what the in-process compositor
+// (`--inproc-seats`) uses, so both one-window paths present the same way.
 
 #pragma once
 
 #include <QElapsedTimer>
 #include <QImage>
-#include <QOpenGLBuffer>
-#include <QOpenGLFunctions>
-#include <QOpenGLShaderProgram>
-#include <QOpenGLVertexArrayObject>
-#include <QOpenGLWidget>
 #include <QTimer>
 #include <QVector>
+#include <QWidget>
 
 #include <vector>
 
@@ -40,12 +41,10 @@ struct Seat {
     quint64 frames = 0;
     bool missing_reported = false;
 
-    QImage canvas;    // newest frame, top-down BGRA (Format_ARGB32 on LE)
-    unsigned tex = 0; // GL texture for `canvas`
-    bool uploaded = false;
+    QImage canvas; // newest frame, top-down BGRA (Format_ARGB32 on LE)
 };
 
-class Viewer : public QOpenGLWidget, protected QOpenGLFunctions {
+class Viewer : public QWidget {
     Q_OBJECT
 
 public:
@@ -66,8 +65,7 @@ public:
     }
 
 protected:
-    void initializeGL() override;
-    void paintGL() override;
+    void paintEvent(QPaintEvent* event) override;
 
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
@@ -92,9 +90,6 @@ private:
     int selected_ = 0;
     bool dragging_ = false;
 
-    QOpenGLShaderProgram program_;
-    QOpenGLVertexArrayObject vao_;
-    QOpenGLBuffer quad_{QOpenGLBuffer::VertexBuffer};
     QTimer frame_timer_;
     QElapsedTimer clock_;
 

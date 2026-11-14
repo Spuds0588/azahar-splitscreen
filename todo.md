@@ -184,6 +184,14 @@ touch are playability polish and may slip to Milestone 4.
       4/4 seats in one window; NSMB2, Mario Party Top 100, Zelda TFH and Kirby fail with
       `ErrorEncrypted` despite "Decrypted" names (no keys installed). MHS soaked 300 s,
       4/4 live, RSS flat at 2 088 MB, clean SIGTERM. Evidence in `history.md` (23).
+- [x] **Production path soak** (2026-11-14): `run.sh --start` with four headless seats, one
+      viewer window, MK7 290 s then MHS 345 s on the same slots. Both fixes it needed are in:
+      the viewer paints with QPainter because this compositor throttles GL swaps to ~1 fps,
+      and `slots::prepare` uses the default two-screen layout because LargeScreen makes MHS
+      abort with a system error dialog. 60-63 fps presented, distinct per-seat rings, SIGTERM
+      left 0 processes/rings/sockets. Evidence in `history.md` (24). Note: a fresh slot shows
+      MHS's "No extra data found" prompt once on the bottom screen and needs one tap per
+      seat; forwarded keys do not dismiss it.
 - [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted
       dump with no keys) instead of leaving four error dialogs on screen.
       Observed 2026-11-14: in the one-window spike this leaves four black tiles with only

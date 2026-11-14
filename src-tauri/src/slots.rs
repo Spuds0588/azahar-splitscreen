@@ -19,9 +19,10 @@ pub fn prepare(root: &Path, players: u8) -> io::Result<Vec<Slot>> {
         let user_dir = dir.join("user");
         fs::create_dir_all(user_dir.join("config"))?;
 
-        // LargeScreen keeps the game screen dominant in a 960x540 tile; the
-        // instance must keep running when another window has focus.
-        let config = "[Layout]\nlayout_option=2\n\n[UI]\npause_when_in_background=false\n";
+        // Default layout (top screen above the touch screen). LargeScreen is
+        // smaller on a TV but makes Monster Hunter Stories abort with a system
+        // error dialog; the instance must also keep running unfocused.
+        let config = "[Layout]\nlayout_option=0\n\n[UI]\npause_when_in_background=false\n";
         fs::write(user_dir.join("config").join("qt-config.ini"), config)?;
 
         seed_mii(&user_dir, seat)?;

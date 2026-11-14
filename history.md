@@ -937,3 +937,53 @@ Method: the emulator ran under a persistent PTY writing `tee /tmp/soak.log`; sam
 read `/dev/shm/azsh-inproc-N` (header + newest slot) and `ps` alongside the log. All
 scratch drivers and the log were removed afterwards; no instrumentation was added to
 the tree for this run.
+
+## 2026-11-14 (22) - One compositor window, proven from the X side: four seats, four tiles
+
+The rings were already proven; this closes the other half - that the single window really
+shows all four guests - from the WM side, not from the app's own log. MK7,
+`--inproc-seats 4`, xcb, 1280x720.
+
+**Window.** `xwininfo` sampled every 2 s from launch through the staggered boots (seats
+booted at t=2/12/20 s): one window, `Azahar in-process seats`, `0x1600013`,
+`Map State: IsViewable`, `1280x720+319+171` in all 23 samples - no resize while seats
+came up. `xprop -id ... _NET_WM_PID` puts it on the azahar pid; of the 9 toplevels that
+process owns, exactly 1 is mapped (the rest are Qt selection-owner/utility windows, none
+viewable). `xwd -id <window>` decodes to 1280x720.
+
+**Tiles.** 2x2 tiles of 640x360. A 400x480 ring scaled with `KeepAspectRatio` is 300x360,
+so each tile carries 170 px black bars left and right; measured in-picture
+`sidebars=(0.0,0.0)` in every capture, and the 300x360 crop matches the ring downscaled to
+the same size - the frame is not stretched to the tile.
+
+**Mapping, one seat at a time.** From four MK7 "no Mii characters" dialogs (all mean 72),
+pressing `A` twice on seat i turned only quadrant i bright (mean 155) and left the other
+three on the dialog; each quadrant's nearest ring was its own seat (mean |diff| 3.2 vs
+137+ for the other three). Four captures, order 0,1,2,3: b0 (all dialog), m0..m3.
+
+**Advancing, three timed captures.** f1/f2/f3, 10 s apart, all four seats racing
+(40-53 fps each, `live=4/4`):
+
+| quad | f1 md5 / mean | f2 md5 / mean | f3 md5 / mean |
+| ---- | ------------- | ------------- | ------------- |
+| 0 | `0b33b8d1` / 123.5 | `71cdd26d` / 112.1 | `e2d4d32e` / 108.1 |
+| 1 | `09aba90a` / 111.2 | `f9af5781` / 129.2 | `a021a593` / 97.8 |
+| 2 | `4517a281` / 93.7 | `66513c9b` / 77.6 | `61e21987` / 82.8 |
+| 3 | `cc2c5d0c` / 101.4 | `df54f9be` / 127.5 | `549e60aa` / 108.0 |
+
+Every quadrant is non-blank (256 distinct byte values), its hash changes in all three
+captures, and no two quadrants share a hash within a capture. Each quadrant's nearest ring
+frame was its own seat in all 12 checks (|diff| 17.6-33.8 on moving pictures).
+
+**No torn frame, no stale tile.** Repeated captures sometimes matched their ring poorly
+(|diff| 15-50). That is the 0.2-0.5 s between `xwd` and the ring read on a 40-50 fps
+screen, not a compositor drop: the same tiles match at 1.5-3.4 on static screens, and the
+diagonal (own seat) still wins. A synthetic 3-slot ring publishing at 55 fps gave 0 torn
+frames in 5207 reads using the compositor's exact read loop (copy one 768 KB slot in
+~0.1 ms, far inside the 18 ms frame period, so the picked slot cannot be rewritten under
+it). An experimental copy-then-recheck-sequence reader measured the same 0 and was
+reverted: no defect to fix, no change kept.
+
+**Shutdown.** SIGTERM -> `multiseat: stopped 4 seats`, exit 0, no azahar process, 0 rings,
+0 sockets. XWD dumps, PNGs and logs lived in `/tmp` and were removed; no instrumentation
+was added to the tree, `build/` untouched apart from the normal incremental rebuild.

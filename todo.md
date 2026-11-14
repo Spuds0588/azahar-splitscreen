@@ -173,6 +173,13 @@ touch are playability polish and may slip to Milestone 4.
       50-59 fps per seat, RSS flat at 2 325 MB, 51 threads, no guest exit, no crash, no
       stalled ring, SIGTERM left 0 processes/rings/sockets. Evidence in `history.md`
       (21). The second pass's `status=16` exit is now ruled out for ten minutes.
+- [x] **One-window proof from the X side** (2026-11-14): four MK7 seats in one
+      1280x720 window - exactly one mapped toplevel on the azahar pid, geometry unchanged
+      through all four boots, each tile matched its own ring, pressing A on one seat
+      changed only that quadrant, and three captures 10 s apart show all four regions
+      non-blank and changing (256 distinct values each, hashes all different, 0.0 side
+      bars = 400:480 kept). No torn frame in 5207 synthetic reads. Evidence in
+      `history.md` (22).
 - [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted
       dump with no keys) instead of leaving four error dialogs on screen.
 - [ ] Resolution policy: 1× for 3–4, 2× for 2, no per-game overrides unless a

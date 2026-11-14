@@ -157,13 +157,13 @@ touch are playability polish and may slip to Milestone 4.
       session's compositor never delivers frame callbacks (`glxgears` 1.0–1.8 FPS),
       so a human has to confirm the picture is on the screen: `./run.sh` → Start →
       `tools/qa/monitor.sh report`, or `./run.sh --start "<rom>" --players 4`.
-- [ ] **In-process quad-system spike — no-go for now (2026-11-14).** Built
-      (`--inproc-seats N`): four Systems boot in one process, `GetInstance()` is
-      thread-local and `GRenderWindow` has one GL context per window, but only 3/4
-      seats published frames (~55 fps, distinct advancing hashes), one tap changed
-      nothing and shutdown hung. 1 900 MB / 34 % CPU total vs ~3.4 GB / ~150 % for
-      four processes: memory win, reliability loss. Conditions and re-run steps in
-      `plans/in-process-seats.md`, evidence in `history.md` (16).
+- [ ] **In-process quad-system spike — no-go (second pass, 2026-11-14).** Presentation
+      fixed (own loop per seat, compositor window) and teardown clean, but one seat's
+      guest exits (`status=16`) while four separate processes with the same profile are
+      fine — so the blocker is process-global emulator state, plus process-global keys.
+      Evidence and the next bisect in `plans/in-process-seats.md`, `history.md` (17).
+      First pass (history (16)) had not yet built the per-seat loop and leaked the
+      emulation thread on stop; both are fixed now.
 - [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted
       dump with no keys) instead of leaving four error dialogs on screen.
 - [ ] Resolution policy: 1× for 3–4, 2× for 2, no per-game overrides unless a

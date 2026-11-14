@@ -20,13 +20,14 @@ class System;
 }
 
 /**
- * The in-process seats spike: N Core::System instances, N emulation threads and
- * N render contexts inside one process, tiled in one window.
+ * The in-process seats spike: N Core::System instances and N emulation threads
+ * inside one process, composited into one window.
  *
- * It exists to answer whether one process can hold four seats, so it deliberately
- * reuses the production seat path (GRenderWindow, the shared-memory ring and the
- * input socket) rather than inventing a second one. `--inproc-seats N <rom>`
- * starts it; see plans/in-process-seats.md.
+ * Each seat keeps its own render context, shared-memory ring and input socket —
+ * the same producer path a seat process uses — and this widget is the single
+ * window that draws all of their rings. There is no shared present thread: each
+ * seat's ring is refreshed by its own timer, so one seat cannot starve another.
+ * `--inproc-seats N <rom>` starts it; see plans/in-process-seats.md.
  */
 class InProcSeats : public QWidget {
 public:
@@ -40,6 +41,11 @@ public:
     /// Stops every seat and removes its threads, ring and socket.
     void Shutdown();
 
+protected:
+    void paintEvent(QPaintEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
+
 private:
     struct Seat {
         std::unique_ptr<Core::System> system;
@@ -50,6 +56,7 @@ private:
         std::uint64_t last_seq = 0;
         std::uint32_t hash = 0;
         bool booted = false;
+        std::string failure;
     };
 
     bool BootSeat(Seat& seat, int index);
@@ -60,8 +67,12 @@ private:
     std::string rom_;
     std::string ring_prefix_;
     std::string socket_prefix_;
+    std::unique_ptr<QTimer> boot_timer_;
+    std::size_t booting_ = 0;
+    std::unique_ptr<QTimer> frame_timer_;
     std::unique_ptr<QTimer> stats_timer_;
     std::unique_ptr<QTimer> stop_poll_timer_;
+    std::size_t pressed_seat_ = 0;
     std::chrono::steady_clock::time_point started_{};
     bool shut_down_ = false;
 };

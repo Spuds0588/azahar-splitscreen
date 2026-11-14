@@ -14,17 +14,24 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <QCoreApplication>
-#include <QGridLayout>
+#include <QImage>
+#include <QMouseEvent>
+#include <QPaintEvent>
+#include <QPainter>
 #include <QTimer>
 
 #include "citra_qt/bootmanager.h"
 #include "core/core.h"
-#include "input_common/main.h"
 #include "core/frontend/applets/default_applets.h"
+#include "input_common/main.h"
+#include "video_core/gpu.h"
+#include "video_core/renderer_base.h"
 
 namespace {
 /// Set from a signal handler, polled on the GUI thread: quitting from a handler
@@ -35,11 +42,96 @@ void OnStopSignal(int) {
     g_stop_requested = 1;
 }
 
+/// Reads the newest complete frame out of a ring and returns it top-down.
+QImage ReadRingImage(const std::string& ring) {
+    const int fd = ::open(("/dev/shm/" + ring).c_str(), O_RDONLY);
+    if (fd < 0) {
+        return {};
+    }
+    QImage image;
+    struct stat info {};
+    if (fstat(fd, &info) == 0 && static_cast<std::size_t>(info.st_size) > 64) {
+        auto* base = static_cast<std::uint8_t*>(
+            mmap(nullptr, static_cast<std::size_t>(info.st_size), PROT_READ, MAP_SHARED, fd, 0));
+        if (base != MAP_FAILED) {
+            std::uint32_t width = 0;
+            std::uint32_t height = 0;
+            std::uint32_t stride = 0;
+            std::uint32_t slot_count = 0;
+            std::uint64_t seq = 0;
+            std::memcpy(&width, base + 8, 4);
+            std::memcpy(&height, base + 12, 4);
+            std::memcpy(&stride, base + 16, 4);
+            std::memcpy(&slot_count, base + 24, 4);
+            std::memcpy(&seq, base + 32, 8);
+            if (slot_count > 0 && seq > 0 && width > 0 && height > 0) {
+                const std::size_t slot_bytes = static_cast<std::size_t>(height) * stride;
+                const std::size_t offset = 64 + ((seq - 1) % slot_count) * slot_bytes;
+                if (offset + slot_bytes <= static_cast<std::size_t>(info.st_size)) {
+                    image = QImage(base + offset, static_cast<int>(width), static_cast<int>(height),
+                                   static_cast<int>(stride), QImage::Format_RGBA8888)
+                                .mirrored(false, true)
+                                .copy();
+                }
+            }
+            munmap(base, static_cast<std::size_t>(info.st_size));
+        }
+    }
+    ::close(fd);
+    return image;
+}
+
 std::uint32_t HashFrame(const std::uint8_t* pixels, std::size_t bytes) {
     std::uint32_t hash = 2166136261u;
     for (std::size_t i = 0; i < bytes; i += 131) {
         hash = (hash ^ pixels[i]) * 16777619u;
     }
+    return hash;
+}
+
+std::uint64_t RingSequence(const std::string& ring) {
+    const int fd = ::open(("/dev/shm/" + ring).c_str(), O_RDONLY);
+    if (fd < 0) {
+        return 0;
+    }
+    std::uint64_t seq = 0;
+    if (pread(fd, &seq, sizeof(seq), 32) != sizeof(seq)) {
+        seq = 0;
+    }
+    ::close(fd);
+    return seq;
+}
+
+std::uint32_t RingHash(const std::string& ring) {
+    const int fd = ::open(("/dev/shm/" + ring).c_str(), O_RDONLY);
+    if (fd < 0) {
+        return 0;
+    }
+    std::uint32_t hash = 0;
+    struct stat info {};
+    if (fstat(fd, &info) == 0 && static_cast<std::size_t>(info.st_size) > 64) {
+        auto* base = static_cast<std::uint8_t*>(
+            mmap(nullptr, static_cast<std::size_t>(info.st_size), PROT_READ, MAP_SHARED, fd, 0));
+        if (base != MAP_FAILED) {
+            std::uint32_t height = 0;
+            std::uint32_t stride = 0;
+            std::uint32_t slot_count = 0;
+            std::uint64_t seq = 0;
+            std::memcpy(&height, base + 12, 4);
+            std::memcpy(&stride, base + 16, 4);
+            std::memcpy(&slot_count, base + 24, 4);
+            std::memcpy(&seq, base + 32, 8);
+            if (slot_count > 0 && seq > 0) {
+                const std::size_t slot_bytes = static_cast<std::size_t>(height) * stride;
+                const std::size_t offset = 64 + ((seq - 1) % slot_count) * slot_bytes;
+                if (offset + slot_bytes <= static_cast<std::size_t>(info.st_size)) {
+                    hash = HashFrame(base + offset, slot_bytes);
+                }
+            }
+            munmap(base, static_cast<std::size_t>(info.st_size));
+        }
+    }
+    ::close(fd);
     return hash;
 }
 
@@ -68,6 +160,24 @@ long ProcessRssMb() {
     std::fclose(status);
     return kb / 1024;
 }
+
+void SendInput(const std::string& socket_path, std::uint8_t type, std::uint32_t key,
+               std::uint16_t x, std::uint16_t y) {
+    const int fd = ::socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        return;
+    }
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    std::snprintf(address.sun_path, sizeof(address.sun_path), "%s", socket_path.c_str());
+    std::uint8_t message[12] = {type, 0, 0, 0};
+    std::memcpy(message + 4, &key, 4);
+    std::memcpy(message + 8, &x, 2);
+    std::memcpy(message + 10, &y, 2);
+    ::sendto(fd, message, sizeof(message), 0, reinterpret_cast<sockaddr*>(&address),
+             sizeof(address));
+    ::close(fd);
+}
 } // namespace
 
 InProcSeats::InProcSeats(int count, std::string rom, std::string ring_prefix,
@@ -75,20 +185,23 @@ InProcSeats::InProcSeats(int count, std::string rom, std::string ring_prefix,
     : rom_{std::move(rom)}, ring_prefix_{std::move(ring_prefix)},
       socket_prefix_{std::move(socket_prefix)} {
     setWindowTitle(QStringLiteral("Azahar in-process seats"));
-    auto* grid = new QGridLayout(this);
-    grid->setContentsMargins(0, 0, 0, 0);
-    grid->setSpacing(1);
+    setMouseTracking(true);
+    setAttribute(Qt::WA_OpaquePaintEvent);
 
-    const int columns = count > 1 ? 2 : 1;
     for (int i = 0; i < count; ++i) {
         auto seat = std::make_unique<Seat>();
         seat->system = std::make_unique<Core::System>();
         seat->ring = ring_prefix_ + std::to_string(i);
         seat->socket = socket_prefix_ + std::to_string(i) + ".sock";
+        // Each seat renders into its own context and publishes its own ring; no
+        // present thread is shared and no seat needs a visible window, so the
+        // frames cannot starve each other.
         seat->window = new GRenderWindow(this, nullptr, *seat->system, false);
-        grid->addWidget(seat->window, i / columns, i % columns);
+        seat->window->setAttribute(Qt::WA_DontShowOnScreen, true);
+        seat->window->hide();
         seats_.push_back(std::move(seat));
     }
+    pressed_seat_ = seats_.size();
     resize(1280, 720);
 }
 
@@ -104,13 +217,25 @@ bool InProcSeats::Start() {
     std::signal(SIGTERM, OnStopSignal);
     std::signal(SIGINT, OnStopSignal);
 
-    bool ok = true;
-    for (std::size_t i = 0; i < seats_.size(); ++i) {
-        ok = BootSeat(*seats_[i], static_cast<int>(i)) && ok;
-    }
-    if (!ok) {
-        return false;
-    }
+    // Booting every seat in the same tick makes the guest apps race each other in
+    // the shared user dir and one of them exits immediately (status 16,
+    // ShutdownRequested). The four-process orchestrator staggers its spawns for
+    // the same reason; do the same here.
+    booting_ = 0;
+    boot_timer_ = std::make_unique<QTimer>(this);
+    connect(boot_timer_.get(), &QTimer::timeout, this, [this] {
+        if (booting_ >= seats_.size()) {
+            boot_timer_->stop();
+            return;
+        }
+        BootSeat(*seats_[booting_], static_cast<int>(booting_));
+        ++booting_;
+    });
+    boot_timer_->start(8000);
+
+    frame_timer_ = std::make_unique<QTimer>(this);
+    connect(frame_timer_.get(), &QTimer::timeout, this, [this] { update(); });
+    frame_timer_->start(16);
 
     stats_timer_ = std::make_unique<QTimer>(this);
     connect(stats_timer_.get(), &QTimer::timeout, this, &InProcSeats::LogStats);
@@ -156,13 +281,89 @@ bool InProcSeats::BootSeat(Seat& seat, int index) {
     seat.system->frame_limiter.SetFrameAdvancing(false);
 
     seat.emu_thread = std::make_unique<EmuThread>(*seat.system, *seat.window);
-    seat.window->OnEmulationStarting(seat.emu_thread.get());
+    // The first seat to boot writes the shared system settings and the guest then
+    // asks APT for a restart, which the core reports as ShutdownRequested while it
+    // is still in initial setup. Booting that seat again is what a fresh process
+    // would do, so do it once rather than losing the seat.
+    connect(seat.emu_thread.get(), &EmuThread::ErrorThrown, this,
+            [this, index](Core::System::ResultStatus status, std::string details) {
+                std::fprintf(stderr, "multiseat: seat%d core stopped, status=%d (%s)\n", index,
+                             static_cast<int>(status), details.c_str());
+                std::fflush(stderr);
+            });
     seat.emu_thread->start();
     seat.emu_thread->SetRunning(true);
     seat.booted = true;
     std::fprintf(stderr, "multiseat: seat%d booted (ring=%s socket=%s)\n", index,
                  seat.ring.c_str(), seat.socket.c_str());
     return true;
+}
+
+void InProcSeats::paintEvent(QPaintEvent*) {
+    QPainter painter{this};
+    painter.fillRect(rect(), Qt::black);
+    if (seats_.empty()) {
+        return;
+    }
+    const int columns = seats_.size() > 1 ? 2 : 1;
+    const int rows = (static_cast<int>(seats_.size()) + columns - 1) / columns;
+    const int tile_width = width() / columns;
+    const int tile_height = height() / rows;
+    for (std::size_t i = 0; i < seats_.size(); ++i) {
+        const int column = static_cast<int>(i) % columns;
+        const int row = static_cast<int>(i) / columns;
+        const QRect tile{column * tile_width, row * tile_height, tile_width, tile_height};
+        const QImage frame = ReadRingImage(seats_[i]->ring);
+        if (frame.isNull()) {
+            continue;
+        }
+        const QSize scaled = frame.size().scaled(tile.size(), Qt::KeepAspectRatio);
+        painter.drawImage(QPoint{tile.x() + (tile.width() - scaled.width()) / 2,
+                                 tile.y() + (tile.height() - scaled.height()) / 2},
+                          frame.scaled(scaled, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+    }
+}
+
+void InProcSeats::mousePressEvent(QMouseEvent* event) {
+    if (seats_.empty()) {
+        return;
+    }
+    const int columns = seats_.size() > 1 ? 2 : 1;
+    const int rows = (static_cast<int>(seats_.size()) + columns - 1) / columns;
+    const int column = std::clamp(static_cast<int>(event->position().x()) / (width() / columns), 0,
+                                  columns - 1);
+    const int row = std::clamp(static_cast<int>(event->position().y()) / (height() / rows), 0,
+                               rows - 1);
+    const std::size_t index = static_cast<std::size_t>(row * columns + column);
+    if (index >= seats_.size()) {
+        return;
+    }
+    // Same datagram the viewer sends, so the seat's socket path is what carries it.
+    const QRect tile{column * (width() / columns), row * (height() / rows), width() / columns,
+                     height() / rows};
+    const QSize frame_size = ReadRingImage(seats_[index]->ring).size();
+    if (frame_size.isEmpty()) {
+        return;
+    }
+    const QSize scaled = frame_size.scaled(tile.size(), Qt::KeepAspectRatio);
+    const QPoint origin{tile.x() + (tile.width() - scaled.width()) / 2,
+                        tile.y() + (tile.height() - scaled.height()) / 2};
+    const QPointF local = event->position() - QPointF{origin};
+    const int x = static_cast<int>(local.x() * frame_size.width() / std::max(1, scaled.width()));
+    const int y = static_cast<int>(local.y() * frame_size.height() / std::max(1, scaled.height()));
+    if (x < 0 || y < 0 || x >= frame_size.width() || y >= frame_size.height()) {
+        return;
+    }
+    SendInput(seats_[index]->socket, 3, 0, static_cast<std::uint16_t>(x),
+              static_cast<std::uint16_t>(y));
+    pressed_seat_ = index;
+}
+
+void InProcSeats::mouseReleaseEvent(QMouseEvent*) {
+    if (pressed_seat_ < seats_.size()) {
+        SendInput(seats_[pressed_seat_]->socket, 5, 0, 0, 0);
+        pressed_seat_ = seats_.size();
+    }
 }
 
 void InProcSeats::LogStats() {
@@ -172,48 +373,23 @@ void InProcSeats::LogStats() {
     int live = 0;
     for (std::size_t i = 0; i < seats_.size(); ++i) {
         Seat& seat = *seats_[i];
-        std::uint64_t seq = 0;
-        std::uint32_t hash = 0;
-        if (const int fd = ::open(("/dev/shm/" + seat.ring).c_str(), O_RDONLY); fd >= 0) {
-            struct stat info {};
-            if (fstat(fd, &info) == 0 && static_cast<std::size_t>(info.st_size) > 64) {
-                auto* base = static_cast<std::uint8_t*>(
-                    mmap(nullptr, static_cast<std::size_t>(info.st_size), PROT_READ, MAP_SHARED,
-                         fd, 0));
-                if (base != MAP_FAILED) {
-                    std::uint32_t width = 0;
-                    std::uint32_t height = 0;
-                    std::uint32_t stride = 0;
-                    std::uint32_t slot_count = 0;
-                    std::memcpy(&width, base + 8, 4);
-                    std::memcpy(&height, base + 12, 4);
-                    std::memcpy(&stride, base + 16, 4);
-                    std::memcpy(&slot_count, base + 24, 4);
-                    std::memcpy(&seq, base + 32, 8);
-                    if (slot_count > 0 && seq > 0 && width > 0 && height > 0) {
-                        const std::size_t slot_bytes = static_cast<std::size_t>(height) * stride;
-                        const std::size_t offset = 64 + ((seq - 1) % slot_count) * slot_bytes;
-                        if (offset + slot_bytes <= static_cast<std::size_t>(info.st_size)) {
-                            hash = HashFrame(base + offset, slot_bytes);
-                        }
-                    }
-                    munmap(base, static_cast<std::size_t>(info.st_size));
-                }
-            }
-            ::close(fd);
-        }
+        const std::uint64_t seq = RingSequence(seat.ring);
+        const std::uint32_t hash = RingHash(seat.ring);
         const double fps = static_cast<double>(seq - seat.last_seq);
         seat.last_seq = seq;
         seat.hash = hash;
         if (seq > 0) {
             ++live;
         }
-        line += " seat" + std::to_string(i) + " fps=" + std::to_string(static_cast<int>(fps + 0.5)) +
-                " seq=" + std::to_string(seq) + " hash=" + [&] {
-                    char text[16];
-                    std::snprintf(text, sizeof(text), "%08x", hash);
-                    return std::string(text);
-                }();
+        char text[32];
+        std::snprintf(text, sizeof(text), "%08x", hash);
+        if (!seat.system->IsPoweredOn() && seat.booted && seat.failure.empty()) {
+            seat.failure = seat.system->GetStatusDetails();
+            std::fprintf(stderr, "multiseat: seat%zu stopped (%s)\n", i, seat.failure.c_str());
+        }
+        line += " seat" + std::to_string(i) +
+                " fps=" + std::to_string(static_cast<int>(fps + 0.5)) +
+                " seq=" + std::to_string(seq) + " hash=" + text;
     }
 
     static double last_cpu = 0.0;
@@ -242,6 +418,9 @@ void InProcSeats::Shutdown() {
         return;
     }
     shut_down_ = true;
+    if (frame_timer_) {
+        frame_timer_->stop();
+    }
     if (stats_timer_) {
         stats_timer_->stop();
     }
@@ -253,13 +432,21 @@ void InProcSeats::Shutdown() {
         if (seat->emu_thread) {
             seat->system->RequestShutdown();
             seat->emu_thread->SetRunning(false);
-            seat->window->OnEmulationStopping();
+            seat->emu_thread->RequestStop();
             // The emulation thread sleeps in the frame limiter between slices, so
             // it only notices the stop when it is woken.
-            for (int attempt = 0; attempt < 100 && seat->emu_thread->isRunning(); ++attempt) {
+            for (int attempt = 0; attempt < 40 && seat->emu_thread->isRunning(); ++attempt) {
                 seat->system->NotifyPendingWork();
-                seat->emu_thread->wait(100);
+                seat->emu_thread->wait(50);
             }
+            if (seat->emu_thread->isRunning()) {
+                // A thread that will not leave must not outlive the object whose
+                // condition variables it waits on; that is the shutdown hang.
+                std::fprintf(stderr, "multiseat: seat emulation thread did not stop, terminating\n");
+                seat->emu_thread->terminate();
+                seat->emu_thread->wait(2000);
+            }
+            seat->emu_thread.reset();
         }
         if (seat->system->IsPoweredOn()) {
             seat->system->Shutdown();

@@ -787,3 +787,32 @@ Verdict and conditions are written up in `plans/in-process-seats.md`: keep the f
 processes, and treat the in-process shape as worth one more attempt only after the
 seat gets its own `EmuWindow`/presentation loop (no single-window present thread),
 deterministic shutdown, and a 4/4-seat 60 s run.
+
+## 2026-11-14 (17) — In-process seats, second pass: presentation fixed, guest exits remain (no-go)
+
+The previous verdict blamed presentation; that was only half right, so the lever was
+taken. Each seat now has its own publication loop (no shared present thread at all — a
+hidden `GRenderWindow` per seat publishes its own ring from its own timer) and one
+software compositor window draws the four rings. Teardown was fixed the same way:
+stop wakes the frame limiter, waits in bounded steps and only then terminates, so
+`EmuThread::~EmuThread` no longer destroys a condition variable a live thread waits on.
+
+Result, one clean run of `--inproc-seats 4` (xcb, 50 s): seats 0/2/3 publish at
+54–57 fps with per-seat sequences and hashes that differ whenever the screens differ;
+**seat 1's guest exits on its own** (`status=16`, `ShutdownRequested`, i.e.
+`svcExitProcess`/APT reset), so the seat is dead rather than starved. One process,
+46 threads, 1 871 MB RSS, ~74 % CPU. SIGTERM → 0 processes, 0 rings, 0 sockets (one
+run exited within a second). Input still not proven: taps at both the 480x240 and the
+stacked 400x480 bottom screen changed nothing.
+
+The discriminating experiment in the record: the same ROM and the same user directory
+as **four separate processes** all publish (seq 2528/2320/2205/2051 over 40 s), and a
+single in-process seat runs normally (59.0 fps emulation, 55 fps ring). So the profile
+on disk is not the problem — being in one process is, which means remaining
+process-global emulator state ends a guest seat. Keys are also process-global
+(`InputCommon::GetKeyboard()`), so a seat cannot own its keys in one process.
+
+Verdict stays **no-go**, with the cause corrected in `plans/in-process-seats.md`
+(candidates and the bisect to run next are listed there). The four-process design
+remains the shipping path; the reusable wins from this spike are the thread-local
+`System`, one GL context per window, and the per-seat ring/socket/loop plumbing.

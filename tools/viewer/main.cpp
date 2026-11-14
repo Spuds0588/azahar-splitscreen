@@ -15,6 +15,14 @@
 #include <QSurfaceFormat>
 
 int main(int argc, char* argv[]) {
+    // A compositor that misses a frame callback for longer than Qt's default
+    // timeout inexposes the window and Qt stops painting it for good. The viewer
+    // paces itself with its own timer, so it must not depend on that handshake;
+    // a healthy compositor answers in milliseconds and never notices this.
+    if (qEnvironmentVariableIsEmpty("QT_WAYLAND_FRAME_CALLBACK_TIMEOUT")) {
+        qputenv("QT_WAYLAND_FRAME_CALLBACK_TIMEOUT", "60000");
+    }
+
     QSurfaceFormat format;
     format.setVersion(3, 3);
     format.setProfile(QSurfaceFormat::CoreProfile);

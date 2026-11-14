@@ -145,18 +145,18 @@ touch are playability polish and may slip to Milestone 4.
       had to be fixed for it: the seat's touch layout was never sized (headless
       window) and the viewer mapped clicks to 400x480 instead of its own frame
       geometry. See `history.md` (13).
-- [ ] **Native-Wayland viewer (open)**: seats, frames, input and teardown all
-      work under `AZAHAR_QT_PLATFORM=wayland`, but the viewer's window is never
-      exposed (`isExposed=0`; `xdg_toplevel.configure` does arrive), so it
-      presents nothing. Reproduces with software GL, no decoration and both
-      window modes. Either fix it in the viewer (QPainter/`wl_shm` fallback) or
-      run the viewer on xcb. See `history.md` (14).
-- [ ] **Known blocked check (environment, not code): presented fps.**
-      `glxgears` on this display is 1.0–1.8 FPS while nothing is composited, so
-      every swap-paced loop reads ~1 Hz. Rerun when the screen is live:
-      `./run.sh` → Start → `tools/qa/monitor.sh report` (viewer `presented_fps`
-      is in `slots/monitor.log`), or `./run.sh --start "<rom>" --players 4`.
-      Native Wayland is the same test with `AZAHAR_QT_PLATFORM=wayland`.
+- [x] **Native-Wayland viewer** — fixed 2026-11-14. Root cause was not the viewer:
+      this session's compositor maps toplevels but never delivers frame callbacks
+      (proven with a raw `wl_shm` client and two minimal Qt windows), and Qt
+      inexposes a window after one missed callback. The viewer now raises
+      `QT_WAYLAND_FRAME_CALLBACK_TIMEOUT` for itself, so it paces on its own timer:
+      one window 1829x1029, `presented_fps=62.4`, seats 59–60 fps, rings 49–53 fps,
+      targeted input, clean teardown. See `history.md` (15).
+- [ ] **Screen-visible check (needs a human): what the panel shows.** presented
+      fps is now measured (62.4 on native Wayland, `history.md` (15)), but this
+      session's compositor never delivers frame callbacks (`glxgears` 1.0–1.8 FPS),
+      so a human has to confirm the picture is on the screen: `./run.sh` → Start →
+      `tools/qa/monitor.sh report`, or `./run.sh --start "<rom>" --players 4`.
 - [ ] **In-process quad-system spike** (the real destination, also the libretro
       shape): four `Core::System` in one process, `GetInstance()` thread-local,
       one composited frame. Go/no-go gate for dropping the four-process design.

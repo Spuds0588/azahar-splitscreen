@@ -8,11 +8,12 @@ presented fps, because this display's GL stack is stalled (`glxgears` 1.0-1.8
 FPS). Rerun with `./run.sh` + `tools/qa/monitor.sh report` once the screen is
 compositing.
 
-**Native Wayland (partly met, `history.md` (14)):** the seats, their rings, the
-input sockets and teardown all work under `AZAHAR_QT_PLATFORM=wayland`; the
-viewer's window is never exposed by this session's compositor (`isExposed=0`
-although `xdg_toplevel.configure` arrives), so it presents nothing yet. Fix in
-the viewer (a `QPainter`/`wl_shm` fallback) or run the viewer on xcb.
+**Native Wayland (met, `history.md` (15)):** one window at 1829x1029 presenting
+62.4 fps with four seats at 59–60 fps and rings at 49–53 fps, targeted input and a
+clean teardown, all with `AZAHAR_QT_PLATFORM=wayland` and no `DISPLAY`. The earlier
+"never exposed" was Qt inexposing the window after a frame callback the compositor
+never sent; the viewer now sets `QT_WAYLAND_FRAME_CALLBACK_TIMEOUT` and paces on its
+own timer, so a stalled compositor cannot silently kill presentation.
 
 ## Why
 

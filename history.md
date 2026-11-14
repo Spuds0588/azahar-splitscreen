@@ -699,3 +699,55 @@ What failed, precisely:
 Next step if it reproduces with a live screen: treat it as a viewer bug and give
 the Wayland path a non-GL widget fallback (QPainter over `wl_shm`), or start the
 viewer on xcb while keeping the seats on Wayland (they are unmapped anyway).
+
+## 2026-11-14 (15) — Native Wayland viewer: root cause found, viewer presents
+
+Entry (14) left the viewer unexplained: window created, `xdg_toplevel.configure`
+arrived, `paintGL` never called, `isExposed=0`. The fault was in Qt's Wayland
+handshake, not in the viewer's code, and the viewer now presents.
+
+**Isolating it** — three minimal clients in the same session (`WAYLAND_DISPLAY=wayland-0`,
+no `DISPLAY`), all built in `/tmp` and removed afterwards:
+
+- **Raw `wl_shm` + xdg-shell client** (no Qt, no GL, ~150 lines of C): binds
+  `wl_compositor`/`wl_shm`/`xdg_wm_base`, creates a toplevel, commits a 640x480 shm
+  buffer. Gets `xdg_toplevel.configure 0x0` → `xdg_surface.configure` →
+  `xdg_toplevel.configure 640x480`, so the window **is mapped**. But in 35 s it got
+  **0 `wl_callback.done`** (1 in one earlier debug run). Nothing in this session is
+  presenting at a usable rate.
+- **Minimal Qt raster window** (no GL): configure 640x480 WindowActive, then Qt's own
+  log names it — `qt.qpa.wayland.backingstore: Didn't receive frame callback in time,
+  window should now be inexposed` → `exposed=0`, paints frozen at 2.
+- **Minimal `QOpenGLWidget`**: `initializeGL ok`, EGL commits happen, same inexpose,
+  paints frozen at 3.
+
+So the viewer is not the only victim: **the compositor maps toplevels but never
+delivers frame callbacks**, which matches `glxgears` at 1.0–1.8 FPS on XWayland —
+this session's display path is stalled for every client, Qt or not.
+
+**The fix** (viewer, 4 lines): Qt inexposes a window after a missed frame callback,
+and an inexposed window is never painted again even though it is still mapped. The
+viewer paces itself with its own timer, so it must not depend on that handshake:
+`tools/viewer/main.cpp` sets `QT_WAYLAND_FRAME_CALLBACK_TIMEOUT=60000` when unset,
+before the application exists. A healthy compositor answers in milliseconds and never
+notices. With it, both probes and the viewer stay `exposed=1` and paint.
+
+Also the paint timer moved 8 ms → 16 ms: with a swap interval, 125 present/s was
+double the display rate for nothing (13.3 % of a core); 16 ms gives 62.5/s at 7.7 %.
+
+**Verified in one clean 4-seat Wayland run** (`AZAHAR_QT_PLATFORM=wayland`, no `DISPLAY`):
+
+- one window: `viewer: GL 4.6 (Core Profile) Mesa 25.0.7 | 4 seats | window 1829x1029`;
+- presented: `ticks=62 presented_fps=62.4 paint_ms=0.56 seat0_seq=…`, sustained
+  62.4–62.6 over the run with all four seat seqs climbing;
+- seats: 60.0 / 60.0 / 59.0 / 60.0 fps at 98.6–100.5 % speed (the first ~30 s of boot
+  dips to 44–55, then settles);
+- frames: 49–53 fps per ring over 2 s;
+- input: a tap at frame (440,195) on seat 1 only changed seat 1 by 127.71/255 and the
+  control seat by 0.03;
+- teardown: SIGTERM → 0 processes, 0 rings, 0 sockets.
+
+**Honest limit:** `presented_fps` counts the viewer's own swap/commit pace, so it
+proves the window is exposed and painting, not that the panel actually shows the
+frames — here no `wl_callback.done` ever arrives, so the compositor is not charging
+for them. Whether the physical screen shows the picture is still a human check.

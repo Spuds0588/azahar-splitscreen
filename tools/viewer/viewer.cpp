@@ -61,13 +61,14 @@ Viewer::Viewer(QVector<Seat> seats, QWidget* parent) : QOpenGLWidget(parent), se
     setMouseTracking(true);
     setCursor(Qt::BlankCursor);
 
-    // Paint on our own clock at roughly 60 Hz; the swap interval paces it to the
-    // display and QOpenGLWidget coalesces anything faster than a frame.
+    // Paint on our own clock at roughly 60 Hz. The swap interval paces a healthy
+    // display; when it does not (a stalled compositor, or a platform that never
+    // waits), this is the pace, so it has to be the display's own rate.
     connect(&frame_timer_, &QTimer::timeout, this, [this] {
         ++ticks_;
         update();
     });
-    frame_timer_.start(8);
+    frame_timer_.start(16);
     clock_.start();
 }
 
@@ -222,9 +223,11 @@ void Viewer::initializeGL() {
     for (auto& seat : seats_) {
         open_ring(seat);
     }
-    log(QStringLiteral("viewer: GL %1 | %2 seats")
+    log(QStringLiteral("viewer: GL %1 | %2 seats | window %3x%4")
             .arg(QString::fromLatin1(reinterpret_cast<const char*>(glGetString(GL_VERSION))))
-            .arg(seats_.size()));
+            .arg(seats_.size())
+            .arg(width())
+            .arg(height()));
 }
 
 QRect Viewer::tile_rect(int index) const {

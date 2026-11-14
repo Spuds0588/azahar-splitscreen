@@ -910,3 +910,30 @@ still stands.
 **Next.** Soak four seats for several minutes (the runs above stopped at 67 s) and watch
 for the second pass's `status=16` guest exit, which has not recurred since the per-seat
 overrides.
+
+## 2026-11-14 (21) - Ten-minute four-seat soak: no exit, crash, stall or leak
+
+MK7 in all four in-process seats (`--inproc-seats 4`, xcb, 400x480 rings), 626 s of
+per-second stats. Verdict: clean.
+
+- **No guest exit.** 4/4 live from t=34 s (boot stagger) to t=626 s, every second
+  reporting `live=4/4`; no `core stopped`, no `status=` line, no `seatN stopped`. The
+  second pass's `status=16` exit did not recur in ten minutes.
+- **No crash.** No SIGSEGV, no unhandled signal, process exit code 0. Only lines that
+  look like errors are the three pre-existing `cubeb_set_log_callback failed` warnings
+  emitted once per seat at boot.
+- **No stalled ring.** Sequence numbers advanced every second on every seat: seat0
+  34 -> 33 718, seat1 34 -> 33 544, seat2 26 -> 33 291, seat3 26 -> 31 407. Eleven
+  ring samples spread over the run each read 88 distinct byte values (real picture,
+  not blank) and changing hashes.
+- **No leak.** RSS was 2 325 MB at t=36 s and still 2 325 MB at t=626 s (2 383 MB as
+  reported by `ps`), thread count stayed at 51, CPU 93-113 % of one core, 50-59 fps per
+  seat (mostly 53-57).
+- **Clean SIGTERM.** `kill -TERM` -> `multiseat: stopped 4 seats`, process gone, 0
+  rings, 0 sockets, no azahar processes left, no threads left behind (the process
+  exit is the thread exit).
+
+Method: the emulator ran under a persistent PTY writing `tee /tmp/soak.log`; samples
+read `/dev/shm/azsh-inproc-N` (header + newest slot) and `ps` alongside the log. All
+scratch drivers and the log were removed afterwards; no instrumentation was added to
+the tree for this run.

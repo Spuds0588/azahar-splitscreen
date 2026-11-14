@@ -169,8 +169,10 @@ touch are playability polish and may slip to Milestone 4.
       earlier "MK7 ignores touch" result stays retracted: the game's touch evidence is
       the kart-parts tap, not the four-seat run, where MK7's screen was not
       touch-operable.
-- [ ] Soak four in-process seats for several minutes: the acceptance runs above stopped
-      at 67 s, so the second pass's guest exit is only ruled out for ~1 minute.
+- [x] Soak four in-process seats: 626 s on MK7 (2026-11-14), 4/4 live throughout,
+      50-59 fps per seat, RSS flat at 2 325 MB, 51 threads, no guest exit, no crash, no
+      stalled ring, SIGTERM left 0 processes/rings/sockets. Evidence in `history.md`
+      (21). The second pass's `status=16` exit is now ruled out for ten minutes.
 - [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted
       dump with no keys) instead of leaving four error dialogs on screen.
 - [ ] Resolution policy: 1× for 3–4, 2× for 2, no per-game overrides unless a

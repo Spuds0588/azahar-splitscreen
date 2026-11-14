@@ -7,6 +7,8 @@
 #include "common/settings.h"
 #include "core/3ds.h"
 #include "core/frontend/emu_window.h"
+
+#include <unordered_set>
 #include "core/frontend/input.h"
 
 namespace Frontend {
@@ -55,6 +57,60 @@ private:
         mutable u64 seen_press_count = 0;
     };
 };
+
+class EmuWindow::KeyState : public Input::Factory<Input::ButtonDevice>,
+                            public std::enable_shared_from_this<KeyState> {
+public:
+    std::unique_ptr<Input::ButtonDevice> Create(const Common::ParamPackage& params) override {
+        return std::make_unique<Device>(shared_from_this(), params.Get("code", 0));
+    }
+
+    void Press(int key_code) {
+        std::scoped_lock guard{mutex};
+        pressed.insert(key_code);
+    }
+
+    void Release(int key_code) {
+        std::scoped_lock guard{mutex};
+        pressed.erase(key_code);
+    }
+
+    bool IsPressed(int key_code) {
+        std::scoped_lock guard{mutex};
+        return pressed.contains(key_code);
+    }
+
+private:
+    class Device : public Input::ButtonDevice {
+    public:
+        Device(std::weak_ptr<KeyState> state_, int key_code_) : state(state_), key_code(key_code_) {}
+        bool GetStatus() const override {
+            if (auto locked = state.lock()) {
+                return locked->IsPressed(key_code);
+            }
+            return false;
+        }
+
+    private:
+        std::weak_ptr<KeyState> state;
+        int key_code;
+    };
+
+    std::mutex mutex;
+    std::unordered_set<int> pressed;
+};
+
+void EmuWindow::PressForwardedKey(int key_code) {
+    if (key_state) {
+        key_state->Press(key_code);
+    }
+}
+
+void EmuWindow::ReleaseForwardedKey(int key_code) {
+    if (key_state) {
+        key_state->Release(key_code);
+    }
+}
 
 EmuWindow::EmuWindow() {
     CreateTouchState();
@@ -128,6 +184,12 @@ void EmuWindow::CreateTouchState() {
         Input::RegisterFactory<Input::TouchDevice>("emu_window", touch_state);
         global_touch_state = touch_state;
     }
+
+    // Buttons pressed through this window, for the same reason: one process can run
+    // several windows, and a key pressed in one seat must not reach another.
+    key_state = std::make_shared<KeyState>();
+    key_device_name = "keyboard_" + std::to_string(reinterpret_cast<std::uintptr_t>(this));
+    Input::RegisterFactory<Input::ButtonDevice>(key_device_name, key_state);
 }
 
 bool EmuWindow::TouchPressed(unsigned framebuffer_x, unsigned framebuffer_y) {

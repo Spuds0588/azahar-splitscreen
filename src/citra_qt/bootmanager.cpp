@@ -863,10 +863,10 @@ void GRenderWindow::ApplyForwardedInput(const InputMessage& message) {
     // behaves exactly like one pressed in the window.
     switch (message.type) {
     case 1:
-        InputCommon::GetKeyboard()->PressKey(message.key);
+        PressForwardedKey(static_cast<int>(message.key));
         break;
     case 2:
-        InputCommon::GetKeyboard()->ReleaseKey(message.key);
+        ReleaseForwardedKey(static_cast<int>(message.key));
         break;
     case 3:
         TouchPressed(message.x, message.y);

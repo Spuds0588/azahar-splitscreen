@@ -861,3 +861,52 @@ A/START, the mode-menu tap only highlights, and the run logged as a character-gr
 was actually on the engine-class screen. Retracted in `plans/in-process-seats.md`; the
 two real limits left are process-global keys and blank rings when two or more seats
 publish.
+
+## 2026-11-14 (20) - In-process seats: keys per seat, blank rings fixed, four-seat bar met
+
+Both remaining defects were the touch bug in another place: state that belongs to one
+seat was shared by the process.
+
+**Keys.** `GRenderWindow::ApplyForwardedInput` pressed `InputCommon::GetKeyboard()`, so a
+key sent to one seat's socket moved every seat. Now each `EmuWindow` owns a `KeyState`
+factory registered as `keyboard_<ptr>`, `Core::System` carries
+`SetKeyDeviceOverride`/`GetKeyDeviceOverride`, HID's `LoadInputDevices` rewrites
+`engine:keyboard…` button strings to that per-System factory, and `ApplyForwardedInput`
+calls the window's own `PressForwardedKey`/`ReleaseForwardedKey`. `engine:keyboard`
+itself is untouched for single-window configs.
+
+**Blank rings from two seats up.** `OpenGLState::cur_state` was one `static OpenGLState`,
+the process-wide cache `Apply()` uses to skip redundant GL calls. Two renderers on two
+emulation threads shared it, so each seat skipped binds the other had changed; the
+screenshot framebuffer then read a different framebuffer/texture than the cache believed
+and came back black. Instrumentation showed the readback path was healthy the whole time:
+`glCheckFramebufferStatus` `GL_FRAMEBUFFER_COMPLETE`, `glReadPixels` 400x480, first pixel
+`000000ff`, only occasional `glGetError` `0x502`. The same race crashed one two-seat run
+with `Unhandled SIGSEGV` at ~27 s. `cur_state` is now `static thread_local` - one GL
+context and one emulation thread per renderer, so per-thread is per-seat.
+
+**Measured, four seats, stripped build** (xcb, 400x480 rings, `--inproc-seats 4`):
+
+- probe title in all four seats: all four non-blank and static; `A` to seat 0 changes only
+  seat 0 (seats 1-3 byte-identical, md5 `8b142f50` before and after); a touch at
+  `(200,360)` to seat 1 changes only seat 1 (`3d57fa4e`), seats 0, 2, 3 unchanged;
+- MK7 in all four seats: each ring carries that seat's own MK7 picture ("no Mii
+  characters" dialog, 88 distinct byte values); `A` twice to seat 0 only walks seat 0
+  dialog -> title -> main menu while seats 1-3 stay on the dialog in every dump; 4/4 live
+  53-57 fps, 2 346 MB RSS, ~95-101 % CPU; SIGTERM -> exit 0, 0 processes, 0 rings, 0
+  sockets;
+- no SIGSEGV in any post-fix run (MK7 four-seat 67 s, probe four-seat, two-seat runs).
+
+**Dead ends.** Per-seat GL contexts were already right (distinct share contexts and
+surfaces, no `makeCurrent` failures, contexts created on the thread that uses them); the
+screenshot FBO was complete and `DrawScreens` filled it; `RasterizerCache`/`res_cache` are
+per-renderer members, not globals. MK7's "no Mii" dialog answers to A/START only - a tap on
+its OK button does nothing - and its menu rows only highlight on a tap, so the game's
+touch evidence remains the kart-parts tap from (19). MK7's screens pulse, so byte-identical
+"untouched seat" comparisons are only possible with a static title; `tools/touchprobe`
+(now also printing the last key mask) is that title. The "MK7 ignores touch" retraction
+still stands.
+
+**Next.** Soak four seats for several minutes (the runs above stopped at 67 s) and watch
+for the second pass's `status=16` guest exit, which has not recurred since the per-seat
+overrides.

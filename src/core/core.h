@@ -558,6 +558,15 @@ public:
         return touch_device_override;
     }
 
+    /// Keyboard factory this System's button strings should use, so keys pressed in
+    /// one window do not reach another System in the same process.
+    void SetKeyDeviceOverride(std::string name) {
+        key_device_override = std::move(name);
+    }
+    [[nodiscard]] const std::string& GetKeyDeviceOverride() const {
+        return key_device_override;
+    }
+
 private:
     static System s_instance;
     static inline thread_local System* s_current = nullptr;
@@ -567,6 +576,7 @@ private:
     std::atomic_bool is_powered_on{};
 
     std::string touch_device_override;
+    std::string key_device_override;
 
     SaveStateStatus save_state_status = SaveStateStatus::NONE;
     SaveStateStatus save_state_request_status = SaveStateStatus::NONE;

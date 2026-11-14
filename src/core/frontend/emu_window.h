@@ -250,6 +250,14 @@ public:
         return touch_device_name;
     }
 
+    /// Same idea for buttons: keys pressed through this window are visible only to
+    /// the System whose buttons were built from GetKeyDeviceName().
+    [[nodiscard]] const std::string& GetKeyDeviceName() const {
+        return key_device_name;
+    }
+    void PressForwardedKey(int key_code);
+    void ReleaseForwardedKey(int key_code);
+
     const Layout::FramebufferLayout& GetFramebufferLayout() const {
         return framebuffer_layout;
     }
@@ -351,6 +359,9 @@ private:
 
     std::shared_ptr<TouchState> touch_state;
     std::string touch_device_name;
+    class KeyState;
+    std::shared_ptr<KeyState> key_state;
+    std::string key_device_name;
 
     /**
      * Clip the provided coordinates to be inside the touchscreen area.

@@ -116,11 +116,23 @@ DirectionState GetStickDirectionState(s16 circle_pad_x, s16 circle_pad_y) {
 
 void Module::LoadInputDevices() {
     LOG_DEBUG(Frontend, "Loading input devices");
+    // Each System can name its own keyboard factory, so a key pressed in one window
+    // is only visible to the System that window belongs to.
+    const std::string& key_device = system.GetKeyDeviceOverride();
+    const auto make_button = [&key_device](const std::string& spec) {
+        constexpr std::string_view keyboard_prefix{"engine:keyboard"};
+        if (!key_device.empty() && spec.starts_with(keyboard_prefix) &&
+            (spec.size() == keyboard_prefix.size() || spec[keyboard_prefix.size()] == ',')) {
+            return Input::CreateDevice<Input::ButtonDevice>(
+                "engine:" + key_device + spec.substr(keyboard_prefix.size()));
+        }
+        return Input::CreateDevice<Input::ButtonDevice>(spec);
+    };
     std::transform(Settings::values.current_input_profile.buttons.begin() +
                        Settings::NativeButton::BUTTON_HID_BEGIN,
                    Settings::values.current_input_profile.buttons.begin() +
                        Settings::NativeButton::BUTTON_HID_END,
-                   buttons.begin(), Input::CreateDevice<Input::ButtonDevice>);
+                   buttons.begin(), make_button);
     circle_pad = Input::CreateDevice<Input::AnalogDevice>(
         Settings::values.current_input_profile.analogs[Settings::NativeAnalog::CirclePad]);
     motion_device = Input::CreateDevice<Input::MotionDevice>(

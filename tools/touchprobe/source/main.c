@@ -1,7 +1,8 @@
-// azahar-touchprobe - reads the emulated touch panel and prints what it sees.
+// azahar-touchprobe - reads the emulated touch panel and buttons and prints what it sees.
 //
 // Minimal responder for the split-screen input spike: no game, no savedata, so a
-// tap either shows up here or the path under test is not delivering touch at all.
+// tap or a key either shows up here or the path under test is not delivering input.
+// Top screen: last key-down mask and how many keys were seen.
 // Bottom screen: last touch position, whether it is held and how many presses.
 // START quits.
 #include <3ds.h>
@@ -9,17 +10,38 @@
 
 int main(int argc, char** argv) {
     gfxInitDefault();
-    consoleInit(GFX_BOTTOM, NULL);
+    PrintConsole top_console;
+    PrintConsole bottom_console;
+    consoleInit(GFX_TOP, &top_console);
+    consoleInit(GFX_BOTTOM, &bottom_console);
+
+    consoleSelect(&top_console);
+    printf("\x1b[8;6HAZAHAR SPLIT-SEAT PROBE");
+    printf("\x1b[10;6Hkeys=0 last=00000000");
+
+    consoleSelect(&bottom_console);
     printf("\x1b[2;2HAZAHAR TOUCHPROBE");
     printf("\x1b[4;2Htap the bottom screen");
     printf("\x1b[6;2HSTART quits");
+
     u32 presses = 0;
+    u32 keypresses = 0;
+    u32 last_key = 0;
     touchPosition last = {0};
     bool was_pressed = false;
     while (aptMainLoop()) {
         hidScanInput();
-        if (hidKeysDown() & KEY_START) {
+        const u32 down = hidKeysDown();
+        if (down & KEY_START) {
             break;
+        }
+        if (down & ~KEY_START) {
+            keypresses++;
+            last_key = down;
+            consoleSelect(&top_console);
+            printf("\x1b[10;6Hkeys=%lu last=%08lx   ", (unsigned long)keypresses,
+                   (unsigned long)last_key);
+            consoleSelect(&bottom_console);
         }
         touchPosition touch;
         hidTouchRead(&touch);

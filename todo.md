@@ -157,18 +157,17 @@ touch are playability polish and may slip to Milestone 4.
       session's compositor never delivers frame callbacks (`glxgears` 1.0–1.8 FPS),
       so a human has to confirm the picture is on the screen: `./run.sh` → Start →
       `tools/qa/monitor.sh report`, or `./run.sh --start "<rom>" --players 4`.
-- [ ] **In-process quad-system spike — no-go (second pass, 2026-11-14).** Presentation
-      fixed (own loop per seat, compositor window) and teardown clean, but one seat's
-      guest exits (`status=16`) while four separate processes with the same profile are
-      fine — so the blocker is process-global emulator state, plus process-global keys.
-      Evidence and the next bisect in `plans/in-process-seats.md`, `history.md` (17).
-      First pass (history (16)) had not yet built the per-seat loop and leaked the
-      emulation thread on stop; both are fixed now.
-      Input measured (history (18), (19)): a tap reaches only the addressed seat's HID
-      and is consumed - `tools/touchprobe` reads back the exact panel coordinates and
-      MK7's kart-parts screen changes on a tap. The earlier "MK7 ignores touch" result
-      was mis-targeted and is retracted. Keys are still process-global, and two or more
-      seats publish blank frames; those are the open items.
+- [x] **In-process quad-system spike — go (third pass, 2026-11-14).** Four seats in
+      one process, one compositor window: every ring carries its own seat's picture, a
+      key and a touch each reach only the addressed seat, SIGTERM leaves 0
+      processes/rings/sockets. Keys were process-global (`InputCommon::GetKeyboard`) and
+      rings went blank from two seats up because `OpenGLState::cur_state` was one
+      process-wide cache; both are per-seat now (`keyboard_<ptr>` factory per window plus
+      `thread_local` GL state). Evidence in `plans/in-process-seats.md` ("Third pass")
+      and `history.md` (20). Second pass's `status=16` guest exit and the presentation
+      leak were fixed earlier (history (17)); the guest exit has not recurred.
+- [ ] Soak four in-process seats for several minutes: the acceptance runs above stopped
+      at 67 s, so the second pass's guest exit is only ruled out for ~1 minute.
 - [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted
       dump with no keys) instead of leaving four error dialogs on screen.
 - [ ] Resolution policy: 1× for 3–4, 2× for 2, no per-game overrides unless a

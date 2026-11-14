@@ -57,7 +57,7 @@ all four published rings (seq 2528 / 2320 / 2205 / 2051 over 40 s). A single
 in-process seat also runs normally (59.0 fps emulation, 55 fps ring). So sharing the
 profile is fine and being in one process is what ends the seat.
 
-## Why no-go
+## Why no-go (second pass — superseded, see the third pass below)
 
 1. **Remaining process-global state in the emulator ends a guest.** One (sometimes two)
    of N Systems has its application exit right after boot; the same configuration in
@@ -137,7 +137,7 @@ A/START; the mode-menu tap only highlights a row; and the run recorded as "chara
 grid" was actually on the engine-class screen, so the grid was never tapped. Nothing
 about the input path was wrong: touch is per-seat and consumed.
 
-Two limits remain, measured the same way:
+Two limits remained after the second pass (both closed by the third pass below):
 
 - **Keys cannot be per-seat.** `ApplyForwardedInput` presses `InputCommon::GetKeyboard()`,
   a process-global, so a forwarded key moves every seat at once; only touch is
@@ -147,7 +147,61 @@ Two limits remain, measured the same way:
   screen (88 distinct values). Sequence numbers keep advancing at 53-57 fps either way,
   so the four-seat visual comparison in the done-bar cannot be made yet.
 
-## Conditions for a go
+## Third pass — both remaining blockers closed (go)
+
+Both defects had the shape the touch bug had: state that belongs to a seat was shared
+by the process.
+
+**Keys were process-global.** `GRenderWindow::ApplyForwardedInput` called
+`InputCommon::GetKeyboard()`, one keyboard for the whole process, so a key sent to one
+seat's socket moved every seat. Fixed the way touch was: each `EmuWindow` owns a
+`KeyState` factory registered as `keyboard_<ptr>`, `Core::System` carries
+`SetKeyDeviceOverride`/`GetKeyDeviceOverride`, HID's `LoadInputDevices` rewrites
+`engine:keyboard…` button strings to that per-System factory, and
+`ApplyForwardedInput` calls the window's own `PressForwardedKey`/`ReleaseForwardedKey`.
+`engine:keyboard` still exists for single-window configs, so the four-process design and
+existing profiles are unchanged.
+
+**Rings went blank at two or more seats** because `OpenGLState::cur_state`
+(`gl_state.cpp`) was a single `static OpenGLState`: the process-wide "what is already
+bound" cache `Apply()` uses to skip redundant GL calls. Two renderers run on two
+emulation threads, so each seat saw the other's binds and skipped binds it actually
+needed — the screenshot framebuffer ended up reading a different framebuffer or texture
+than the state cache believed. The readback itself was healthy
+(`glCheckFramebufferStatus` = `GL_FRAMEBUFFER_COMPLETE`, `glReadPixels` returned rows,
+`glGetError` only occasionally `0x502`), which is why the black frames looked like a
+content problem instead of a state problem; the same race crashed one two-seat run
+(`Unhandled SIGSEGV`, ~27 s). Fix: `static thread_local OpenGLState cur_state` — each
+renderer owns one GL context and one emulation thread, so per-thread is per-seat. One
+line, no behaviour change for a single window.
+
+**Measured on the stripped build**, four seats, xcb, rings 400x480, `--inproc-seats 4`:
+
+- *Probe title in all four seats* (`tools/touchprobe.3dsx`, now also printing the last
+  key mask on the top screen): all four rings non-blank and static; `A` to seat 0
+  changes only seat 0 (seats 1–3 byte-identical, md5 `8b142f50` before and after);
+  a touch at `(200,360)` to seat 1 changes only seat 1 (md5 `3d57fa4e`), seats 0, 2, 3
+  unchanged.
+- *Mario Kart 7 in all four seats*: every ring carries that seat's own picture of the
+  game (the "no Mii characters" dialog, 88 distinct byte values); `A` twice to seat 0
+  only walks seat 0 dialog → title → main menu while seats 1–3 stay on the dialog in
+  every dump (saved PNGs at each step); 4/4 live at 53–57 fps, 2 346 MB RSS, ~95–101 %
+  CPU; SIGTERM → exit 0, 0 processes, 0 rings, 0 sockets.
+- No SIGSEGV in any post-fix run (four-seat MK7 67 s, four-seat probe, two-seat runs).
+
+**Dead ends worth not repeating.** Per-seat GL contexts were already correct: each
+window's share context and surface differ, no `makeCurrent` failures, and contexts are
+created on the thread that uses them. The screenshot FBO was complete and `DrawScreens`
+drew into it. `RasterizerCache`/`res_cache` are per-renderer members, not globals. MK7's
+"no Mii" dialog answers to A/START only (a tap on its OK button does nothing) and its
+menu rows only highlight on a tap — the same targeting result as entry (19), so the
+game's touch evidence stays the kart-parts tap. MK7's screens also pulse, so
+byte-identical "untouched seat" comparisons are only possible with a static title; the
+probe is that title.
+
+The retraction of "MK7 ignores touch" still stands.
+
+## Conditions for a go (all met by the third pass above)
 
 - Find and remove the shared state that ends a guest seat: start the two-seat case and
   break on `Core::System::SendSignal` / `svcExitProcess` to catch the caller, then

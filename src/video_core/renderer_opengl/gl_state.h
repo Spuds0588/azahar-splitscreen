@@ -187,7 +187,11 @@ public:
     OpenGLState& ResetRenderbuffer(GLuint handle);
 
 private:
-    static OpenGLState cur_state;
+    // Each renderer owns one GL context, and in a multi-seat process each renderer
+    // runs on its own thread. Caching the tracked GL state process-wide makes one
+    // seat's binds look like another's, which desynchronizes framebuffer/texture
+    // binds (black frames) and races between emulation threads.
+    static thread_local OpenGLState cur_state;
 };
 
 } // namespace OpenGL

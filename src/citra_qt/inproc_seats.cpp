@@ -270,6 +270,7 @@ bool InProcSeats::BootSeat(Seat& seat, int index) {
     // own window's touch factory so a touch stays on the seat it was sent to.
     auto& profile = Settings::values.current_input_profile;
     seat.system->SetTouchDeviceOverride("engine:" + seat.window->GetTouchDeviceName());
+    seat.system->SetKeyDeviceOverride(seat.window->GetKeyDeviceName());
     profile.touch_device = "engine:emu_window";
     if (profile.buttons[Settings::NativeButton::Start].empty()) {
         profile.buttons[Settings::NativeButton::Start] = "engine:keyboard,code:77";

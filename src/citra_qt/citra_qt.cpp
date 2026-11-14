@@ -73,6 +73,7 @@
 #endif
 #include "citra_qt/game_list.h"
 #include "citra_qt/hotkeys.h"
+#include "citra_qt/inproc_seats.h"
 #include "citra_qt/loading_screen.h"
 #include "citra_qt/movie/movie_play_dialog.h"
 #include "citra_qt/movie/movie_record_dialog.h"
@@ -4944,6 +4945,27 @@ int LaunchQtFrontend(int argc, char* argv[]) {
     setlocale(LC_ALL, "C");
 
     auto& system{Core::System::GetInstance()};
+
+    // In-process seats spike: N Systems and N render contexts in one process and
+    // one window. Parsed before GMainWindow exists because this mode has no
+    // main window, game list or menus at all.
+    int inproc_seats = 0;
+    std::string inproc_rom;
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--inproc-seats") == 0 && i + 1 < argc) {
+            inproc_seats = std::atoi(argv[++i]);
+        } else if (argv[i][0] != '-') {
+            inproc_rom = argv[i];
+        }
+    }
+    if (inproc_seats > 0 && !inproc_rom.empty()) {
+        InProcSeats seats{inproc_seats, inproc_rom, "azsh-inproc-", "/tmp/azsh-inproc-p"};
+        seats.show();
+        const bool started = seats.Start();
+        const int status = started ? app.exec() : -1;
+        seats.Shutdown();
+        return status;
+    }
 
     // Register Qt image interface
     system.RegisterImageInterface(std::make_shared<QtImageInterface>());

@@ -220,7 +220,9 @@ private:
     /// Main context that will be shared with all other contexts that are requested.
     /// If this is used in a shared context setting, then this should not be used directly, but
     /// should instead be shared from
-    static std::unique_ptr<Frontend::GraphicsContext> main_context;
+    /// One context per window: seats in one process each render on their own
+    /// thread, and a context can only be current on one thread at a time.
+    std::unique_ptr<Frontend::GraphicsContext> main_context;
 
     /// Temporary storage of the screenshot taken
     QImage screenshot_image;

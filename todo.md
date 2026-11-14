@@ -157,9 +157,13 @@ touch are playability polish and may slip to Milestone 4.
       session's compositor never delivers frame callbacks (`glxgears` 1.0–1.8 FPS),
       so a human has to confirm the picture is on the screen: `./run.sh` → Start →
       `tools/qa/monitor.sh report`, or `./run.sh --start "<rom>" --players 4`.
-- [ ] **In-process quad-system spike** (the real destination, also the libretro
-      shape): four `Core::System` in one process, `GetInstance()` thread-local,
-      one composited frame. Go/no-go gate for dropping the four-process design.
+- [ ] **In-process quad-system spike — no-go for now (2026-11-14).** Built
+      (`--inproc-seats N`): four Systems boot in one process, `GetInstance()` is
+      thread-local and `GRenderWindow` has one GL context per window, but only 3/4
+      seats published frames (~55 fps, distinct advancing hashes), one tap changed
+      nothing and shutdown hung. 1 900 MB / 34 % CPU total vs ~3.4 GB / ~150 % for
+      four processes: memory win, reliability loss. Conditions and re-run steps in
+      `plans/in-process-seats.md`, evidence in `history.md` (16).
 - [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted
       dump with no keys) instead of leaving four error dialogs on screen.
 - [ ] Resolution policy: 1× for 3–4, 2× for 2, no per-game overrides unless a

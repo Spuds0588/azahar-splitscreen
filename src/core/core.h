@@ -85,7 +85,17 @@ public:
      * @returns Reference to the instance of the System singleton class.
      */
     [[nodiscard]] static System& GetInstance() {
-        return s_instance;
+        return s_current != nullptr ? *s_current : s_instance;
+    }
+
+    /**
+     * Tells this thread which System it belongs to. Several Systems can live in
+     * one process (the in-process seats spike), so every thread that runs core
+     * code has to name its own; a thread that names none gets the process-wide
+     * instance, which is what the single-instance frontends rely on.
+     */
+    static void SetCurrent(System* system) {
+        s_current = system;
     }
 
     /// Enumeration representing the return values of the System Initialize and Load process.
@@ -538,6 +548,7 @@ private:
 
 private:
     static System s_instance;
+    static inline thread_local System* s_current = nullptr;
 
     Common::Event pending_work_event;
 

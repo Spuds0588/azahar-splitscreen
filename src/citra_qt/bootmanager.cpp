@@ -66,6 +66,8 @@ static GMainWindow* GetMainWindow() {
 
 void EmuThread::run() {
     MicroProfileOnThreadCreate("EmuThread");
+    // Several Systems can share this process; core calls resolve to this seat.
+    Core::System::SetCurrent(&system);
     const auto scope = core_context.Acquire();
 
     if (Settings::values.custom_textures && Settings::values.preload_textures) {
@@ -306,6 +308,7 @@ public:
         stop_presenting = false;
         present_thread.reset(QThread::create([this, gl_context, gui_thread] {
             Common::SetCurrentThreadName(is_secondary ? "SecondaryPresent" : "Present");
+            Core::System::SetCurrent(&system);
             while (!stop_presenting) {
                 if (!Present()) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -484,8 +487,6 @@ static Frontend::EmuWindow::WindowSystemInfo GetWindowSystemInfo(QWindow* window
 
     return wsi;
 }
-
-std::unique_ptr<Frontend::GraphicsContext> GRenderWindow::main_context;
 
 GRenderWindow::GRenderWindow(QWidget* parent_, EmuThread* emu_thread_, Core::System& system_,
                              bool is_secondary_)

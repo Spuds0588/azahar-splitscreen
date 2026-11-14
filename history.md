@@ -751,3 +751,39 @@ double the display rate for nothing (13.3 % of a core); 16 ms gives 62.5/s at 7.
 proves the window is exposed and painting, not that the panel actually shows the
 frames — here no `wl_callback.done` ever arrives, so the compositor is not charging
 for them. Whether the physical screen shows the picture is still a human check.
+
+## 2026-11-14 (16) — In-process seats: core is ready, presentation is not (no-go, for now)
+
+The mission asked whether four `Core::System` instances can live in one process and
+present in one window, so the four-process + ring design can be dropped. Spike built
+and run; the answer is **no-go for now**, and the reason is not the one the plan
+expected.
+
+What was built (`--inproc-seats N <rom>`, `src/citra_qt/inproc_seats.{h,cpp}`): N
+Systems, N `EmuThread`s and N `GRenderWindow`s tiled in one window, each seat keeping
+its production ring and input socket so the numbers compare directly. The core change
+it needed is small: `Core::System::GetInstance()` returns a thread-local current
+System (`SetCurrent`, fallback to the singleton), and `GRenderWindow::main_context`
+stopped being a process-wide static — one GL context per window is what allows seats
+to render on their own threads. Two more small fixes fell out: the frame limiter has
+to be released per seat (otherwise the emulation thread waits forever before its first
+frame), and `Service::AttemptLLE` threw on an empty `lle_modules` map when no config
+was loaded.
+
+Measured (60 s run, xcb, 4 seats): seats 0/2/3 published rings at **53–58 fps** with
+distinct, advancing frame hashes; **seat 1 never published a frame** (seq 0) although
+its emulation and present threads were alive — its screenshot request never completed.
+Process totals: **1 900 MB RSS, 34 % CPU**, one process. A tap on seat 0's socket
+changed no seat's frame, so in-process input routing was not proven. SIGTERM left the
+process alive with its rings and sockets (hang in `EmuThread::~EmuThread` destroying a
+condvar of an unjoined thread); one earlier run died with a SIGSEGV.
+
+Against the four-process design (history (12)/(13)/(15)): 59–60 fps per seat, 49–53 fps
+rings, ~700–880 MB **per** seat (~3.4 GB), ~35–40 % CPU **per** seat, and a clean
+0/0/0 teardown. So in-process memory is clearly better, CPU is a wash, and reliability
+is much worse.
+
+Verdict and conditions are written up in `plans/in-process-seats.md`: keep the four
+processes, and treat the in-process shape as worth one more attempt only after the
+seat gets its own `EmuWindow`/presentation loop (no single-window present thread),
+deterministic shutdown, and a 4/4-seat 60 s run.

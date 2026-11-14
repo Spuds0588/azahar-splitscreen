@@ -202,8 +202,11 @@ static bool AttemptLLE(const ServiceModuleInfo& service_module, u64 loading_titl
         Common::Hacks::HackType::ONLINE_LLE_REQUIRED, loading_titleid,
         Settings::values.enable_required_online_lle_modules.GetValue());
 
-    if (!Settings::values.lle_modules.at(service_module.name) &&
-        (!enable_recommended_lle_modules || !service_module.is_online_recommended))
+    // An embedder that never loaded a config leaves the map empty; a module with
+    // no entry is not requested, so it stays on HLE like `false` would.
+    const auto lle_entry = Settings::values.lle_modules.find(service_module.name);
+    const bool want_lle = lle_entry != Settings::values.lle_modules.end() && lle_entry->second;
+    if (!want_lle && (!enable_recommended_lle_modules || !service_module.is_online_recommended))
         return false;
     std::unique_ptr<Loader::AppLoader> loader =
         Loader::GetLoader(AM::GetTitleContentPath(FS::MediaType::NAND, service_module.title_id));

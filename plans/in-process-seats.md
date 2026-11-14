@@ -201,7 +201,9 @@ probe is that title.
 
 The retraction of "MK7 ignores touch" still stands.
 
-## Conditions for a go (all met by the third pass above)
+## Conditions for a go (the second pass's list — all met by the third pass above)
+
+Kept as the second pass wrote it; each item below is now satisfied (see "Third pass").
 
 - Find and remove the shared state that ends a guest seat: start the two-seat case and
   break on `Core::System::SendSignal` / `svcExitProcess` to catch the caller, then

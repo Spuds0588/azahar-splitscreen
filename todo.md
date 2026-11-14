@@ -165,7 +165,10 @@ touch are playability polish and may slip to Milestone 4.
       process-wide cache; both are per-seat now (`keyboard_<ptr>` factory per window plus
       `thread_local` GL state). Evidence in `plans/in-process-seats.md` ("Third pass")
       and `history.md` (20). Second pass's `status=16` guest exit and the presentation
-      leak were fixed earlier (history (17)); the guest exit has not recurred.
+      leak were fixed earlier (history (17)); the guest exit has not recurred. The
+      earlier "MK7 ignores touch" result stays retracted: the game's touch evidence is
+      the kart-parts tap, not the four-seat run, where MK7's screen was not
+      touch-operable.
 - [ ] Soak four in-process seats for several minutes: the acceptance runs above stopped
       at 67 s, so the second pass's guest exit is only ruled out for ~1 minute.
 - [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted

@@ -987,3 +987,36 @@ reverted: no defect to fix, no change kept.
 **Shutdown.** SIGTERM -> `multiseat: stopped 4 seats`, exit 0, no azahar process, 0 rings,
 0 sockets. XWD dumps, PNGs and logs lived in `/tmp` and were removed; no instrumentation
 was added to the tree, `build/` untouched apart from the normal incremental rebuild.
+
+## 2026-11-14 (23) - ROM matrix: two of six test ROMs boot four seats, four are encrypted
+
+Ran the four-seat spike over every ROM in `Test Roms/` (80 s each: boot, four samples
+20 s apart, one X capture, SIGTERM), then a five-minute soak on the second ROM that boots.
+
+| ROM | seats | evidence | teardown |
+| --- | --- | --- | --- |
+| MK7 (EU, "Decrypted") | 4/4 | `live=4/4`, rings 88 distinct values, 2 760 MB RSS, tiles `051e6a/2f2656/0e6014/7bd110`, 1280x720 IsViewable | exit 0, stopped 4 seats, 0 leftovers |
+| Monster Hunter Stories (EU, no suffix) | 4/4 | `live=4/4`, rings 85-88 distinct, 2 088 MB RSS, tiles `9e4da9/3672a9/afc001/829f5d` | exit 0, stopped 4 seats, 0 leftovers |
+| NSMB2 (USA, "Decrypted") | 0/4 | `Failed to determine system mode (Error 8)`, `seatN failed to load the ROM (status 5)` | exit 0, stopped 4 seats |
+| Mario Party - The Top 100 (USA) | 0/4 | same | exit 0, stopped 4 seats |
+| Zelda - Tri Force Heroes (USA) | 0/4 | same | exit 0, stopped 4 seats |
+| Kirby's Extra Epic Yarn (USA) | 0/4 | same | exit 0, stopped 4 seats |
+
+- Loader status 8 is `Loader::ResultStatus::ErrorEncrypted` from `LoadKernelMemoryMode`
+  (`src/core/core.cpp:407`): those four files are encrypted despite the "Decrypted" name,
+  and no keys are installed. The stock frontend refuses the same Zelda file with an
+  **"Encrypted application"** dialog (`xprop WM_NAME`), which puts the failure on the ROM,
+  not the compositor.
+- The spike handles that case without crashing: the window stays up with four black
+  tiles, each seat logs its failure at boot, `live=0/4`, and SIGTERM still yields
+  `stopped 4 seats`, exit 0, no rings, no sockets. What it does not do is say why on
+  screen - that is the existing "pre-flight ROM check" item in `todo.md`, which now has a
+  concrete case. Only MK7 and MHS are usable for four-seat testing on this machine.
+- MK7 control numbers: 95-102 % CPU, RSS flat at 2 760 MB, four distinct tiles, one
+  1280x720 mapped window, clean exit.
+
+**MHS soak, 300 s.** 4/4 live in all ten samples, 417-430 % CPU, RSS 2 088 -> 2 089 MB
+(flat), ring sequence 12 536/12 194/11 900/11 529 at 84-88 distinct byte values (64-78
+during fades, never blank), window 1280x720 IsViewable throughout, four distinct tiles at
+the end (`044d4a/f2ee1c/d514ae/3370de`, means 81/67/61/62), SIGTERM -> exit 0,
+`stopped 4 seats`, 0 rings, 0 sockets. The heavier 2 GB ROM is as stable as MK7.

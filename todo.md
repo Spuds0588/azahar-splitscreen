@@ -180,8 +180,16 @@ touch are playability polish and may slip to Milestone 4.
       non-blank and changing (256 distinct values each, hashes all different, 0.0 side
       bars = 400:480 kept). No torn frame in 5207 synthetic reads. Evidence in
       `history.md` (22).
+- [x] ROM matrix + second-ROM soak (2026-11-14): MK7 and Monster Hunter Stories boot
+      4/4 seats in one window; NSMB2, Mario Party Top 100, Zelda TFH and Kirby fail with
+      `ErrorEncrypted` despite "Decrypted" names (no keys installed). MHS soaked 300 s,
+      4/4 live, RSS flat at 2 088 MB, clean SIGTERM. Evidence in `history.md` (23).
 - [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted
       dump with no keys) instead of leaving four error dialogs on screen.
+      Observed 2026-11-14: in the one-window spike this leaves four black tiles with only
+      a log line (`seatN failed to load the ROM (status 5)`, loader `ErrorEncrypted`);
+      the stock frontend shows an "Encrypted application" dialog. Four of the six test
+      ROMs hit it. See `history.md` (23).
 - [ ] Resolution policy: 1× for 3–4, 2× for 2, no per-game overrides unless a
       game is broken.
 

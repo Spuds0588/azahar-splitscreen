@@ -1170,3 +1170,37 @@ fill/border, then re-captured.
 The capture was `xwd -id <viewer>` converted with `xwdtopnm` and read back as an image, not
 inferred from logs. The 2-player badge is larger (tiles are twice as tall) and sits in the
 picture's corner because that layout leaves only ~49 px of margin.
+
+## 2026-11-14 (28) - A dead or frozen seat restarts itself
+
+One seat dying used to leave a frozen tile for the rest of the session (`is_running` only
+needs *one* live child, so nothing noticed). `Session::watch()` now runs from the headless
+loop (every 500 ms) and from the `session_running` command the picker polls: it reads each
+ring's `seq` with a 8-byte `pread` at offset 32, and restarts the seat when its child has
+exited or when it has published nothing for 15 s. The stall test only arms 30 s after a
+spawn, because a cold MK7 seat stops publishing for several seconds while it compiles
+shaders and joins the room - arming earlier made the watchdog fight the boot. Three
+restarts per seat, then it gives up and the log says so.
+
+Two things had to be fixed to make the replacement actually stick:
+
+- **`room: error 9` = `RoomIsFull`.** The replacement rejoined while the room still counted
+the dead member, was rejected, and then sat idle until the next restart. The room now gets
+`players + 1` member slots, and the respawn waits 2 s after the old process is gone.
+- **The stale ring.** A SIGKILLed seat leaves its `/dev/shm` object behind (no clean close),
+and a replacement that inherited it published no frames at all - it was restarted again 30 s
+later for "no frames". The watchdog unlinks the ring before respawning, so the replacement
+creates a fresh object. The viewer now compares the object's inode with its mapping each
+frame (`ring_replaced`) and re-attaches, logging `ring ... was replaced, re-attaching`.
+
+| event | log | result |
+| --- | --- | --- |
+| SIGKILL seat 2 at t=35 s | `restarted (1/3): exited (signal: 9 (SIGKILL))` | one restart, new pid, ring 0 -> 2263 over 50 s, `presented_fps` 62.6, viewer re-attached |
+| SIGSTOP seat 3 (frozen, still alive) | `restarted (1/3): no frames for 15s` | one restart, new pid, ring 0 -> 838 over 20 s, `presented_fps` 62.5 |
+| both restarts in one session | - | window capture: P1 and P4 mid-race, P2 and P3 at the title, four badges, four distinct live tiles |
+
+Clean session afterwards: 62.4 fps, `EXIT=0`, 0 processes/rings/sockets. The 2-player
+default (no `--players`) still gives 2 rings, 62.4 fps, `EXIT=0`, 0 leftovers, and the
+`--message` notice path is untouched (no `watch()` without a session). Note for anyone
+testing by hand: a seat ignores plain SIGTERM, which is why the orchestrator's own teardown
+uses SIGKILL after it.

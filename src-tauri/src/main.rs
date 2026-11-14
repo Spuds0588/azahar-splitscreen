@@ -63,7 +63,12 @@ fn session_running(state: tauri::State<AppState>) -> bool {
         Err(_) => return false,
     };
     match guard.as_mut() {
-        Some(session) => session.is_running(),
+        Some(session) => {
+            // The UI polls this while a session runs; a seat whose frames stopped
+            // is restarted here rather than reported as dead.
+            session.watch();
+            session.is_running()
+        }
         None => false,
     }
 }
@@ -143,7 +148,11 @@ fn run_headless(rom: &str, players: u8) -> ! {
         }
     };
     println!("{}", session.summary);
-    while session.is_running() && !TERMINATE.load(std::sync::atomic::Ordering::SeqCst) {
+    while !TERMINATE.load(std::sync::atomic::Ordering::SeqCst) {
+        session.watch();
+        if !session.is_running() {
+            break;
+        }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     drop(session);

@@ -24,6 +24,17 @@ pub struct Session {
     /// Per-seat frame rings and input sockets this session owns.
     rings: Vec<String>,
     sockets: Vec<PathBuf>,
+    /// What a stalled seat needs to be spawned again, and how long its ring has
+    /// been quiet. `restarts` caps the retries so a ROM that cannot run does not
+    /// loop forever.
+    seat_args: Vec<Vec<String>>,
+    seat_logs: Vec<PathBuf>,
+    bin: PathBuf,
+    root: PathBuf,
+    last_seq: Vec<u64>,
+    last_move: Vec<Instant>,
+    spawned_at: Vec<Instant>,
+    restarts: Vec<u8>,
     pub log_path: PathBuf,
     pub summary: String,
 }
@@ -33,6 +44,73 @@ impl Session {
         self.instances
             .iter_mut()
             .any(|child| matches!(child.try_wait(), Ok(None)))
+    }
+
+    /// Restart a seat whose ring stopped advancing: a crash, or a hang the game
+    /// never comes back from. The ring and socket keep their names, so the
+    /// viewer re-attaches and the seat rejoins the room on its own.
+    pub fn watch(&mut self) {
+        const STALL: Duration = Duration::from_secs(15);
+        // A cold seat stops publishing for several seconds while the game
+        // compiles shaders and joins the room; the stall test only arms once it
+        // has had time to settle, or a restart would fight the boot.
+        const ARM: Duration = Duration::from_secs(30);
+        const MAX_RESTARTS: u8 = 3;
+
+        for seat in 0..self.instances.len() {
+            let status = self.instances[seat].try_wait().ok().flatten();
+            let dead = status.is_some();
+            let seq = ring_seq(&self.rings[seat]);
+            if seq > self.last_seq[seat] {
+                self.last_seq[seat] = seq;
+                self.last_move[seat] = Instant::now();
+            }
+            if !dead &&
+                (self.spawned_at[seat].elapsed() < ARM ||
+                    self.last_move[seat].elapsed() < STALL)
+            {
+                continue;
+            }
+            if self.restarts[seat] >= MAX_RESTARTS {
+                continue;
+            }
+
+            let reason = match status {
+                Some(status) => format!("exited ({status})"),
+                None => format!("no frames for {:.0}s", self.last_move[seat].elapsed().as_secs_f32()),
+            };
+            terminate(&mut self.instances[seat]);
+            // A killed seat leaves its ring behind, sometimes mid-resize; give
+            // the replacement a clean object (the viewer re-attaches by inode).
+            let _ = fs::remove_file(Path::new("/dev/shm").join(&self.rings[seat]));
+            // Let the room drop the dead member before the replacement joins it.
+            sleep(Duration::from_secs(2));
+            self.restarts[seat] += 1;
+            let spawned = spawn(&self.bin, &self.seat_args[seat], &self.root, &self.seat_logs[seat]);
+            match spawned {
+                Ok(child) => {
+                    log(
+                        &self.log_path,
+                        &format!(
+                            "Player {}: restarted ({}/{}): {reason}",
+                            seat + 1,
+                            self.restarts[seat],
+                            MAX_RESTARTS
+                        ),
+                    );
+                    self.instances[seat] = child;
+                }
+                Err(error) => {
+                    log(
+                        &self.log_path,
+                        &format!("Player {}: restart failed: {error}", seat + 1),
+                    );
+                }
+            }
+            self.last_seq[seat] = 0;
+            self.last_move[seat] = Instant::now();
+            self.spawned_at[seat] = Instant::now();
+        }
     }
 
     pub fn log_tail(&self) -> String {
@@ -161,8 +239,10 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
             "Azahar Splitscreen".into(),
             "--port".into(),
             port.to_string(),
+            // One spare slot: a seat that restarts rejoins before the room has
+            // finished dropping its dead connection, and a full room rejects it.
             "--max_members".into(),
-            players.max(2).to_string(),
+            (players.max(2) + 1).to_string(),
             "--ban-list-file".into(),
             session_dir.join("ban_list.txt").display().to_string(),
         ],
@@ -196,6 +276,7 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
 
     let mut instances = Vec::with_capacity(slots.len());
     let mut instance_logs = Vec::with_capacity(slots.len());
+    let mut seat_args = Vec::with_capacity(slots.len());
     for ((slot, ring), socket) in slots.iter().zip(&rings).zip(&sockets) {
         let instance_log = session_dir.join(format!("{}.log", slot.name));
         instance_logs.push(instance_log.clone());
@@ -222,6 +303,7 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
         ];
         match spawn(&bin, &args, &root, &instance_log) {
             Ok(child) => {
+                seat_args.push(args);
                 log(
                     &log_path,
                     &format!(
@@ -272,17 +354,23 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
     // tap in, so clear it for the player.
     clear_boot_prompt(sockets.clone());
 
+    let seat_count = slots.len();
     Ok(Session {
         room,
         instances,
         viewer,
         rings,
         sockets,
+        seat_args,
+        seat_logs: instance_logs,
+        bin,
+        root,
+        last_seq: vec![0; seat_count],
+        last_move: vec![Instant::now(); seat_count],
+        spawned_at: vec![Instant::now(); seat_count],
+        restarts: vec![0; seat_count],
         log_path,
-        summary: format!(
-            "{} players in room splitscreen on port {port}",
-            slots.len()
-        ),
+        summary: format!("{seat_count} players in room splitscreen on port {port}"),
     })
 }
 
@@ -390,6 +478,20 @@ fn wait_for_room(room: &mut Child, log_path: &Path) -> Result<(), String> {
         sleep(Duration::from_millis(200));
     }
     Err("azahar-room did not report an open room within 10s".to_string())
+}
+
+/// The ring's publish counter, or 0 while the seat has not created the object
+/// (or has just replaced it).
+fn ring_seq(ring: &str) -> u64 {
+    use std::os::unix::fs::FileExt;
+    let Ok(file) = File::open(format!("/dev/shm/{ring}")) else {
+        return 0;
+    };
+    let mut bytes = [0u8; 8];
+    if file.read_at(&mut bytes, 32).is_err() {
+        return 0;
+    }
+    u64::from_le_bytes(bytes)
 }
 
 fn free_udp_port() -> Result<u16, String> {

@@ -147,6 +147,40 @@ void Viewer::open_ring(Seat& seat) {
             .arg(seat.slot_count));
 }
 
+void Viewer::close_ring(Seat& seat) {
+    if (seat.base != nullptr) {
+        munmap(seat.base, static_cast<size_t>(seat.size));
+    }
+    if (seat.fd >= 0) {
+        ::close(seat.fd);
+    }
+    seat.fd = -1;
+    seat.base = nullptr;
+    seat.size = 0;
+    seat.last_seq = 0;
+    seat.missing_reported = false;
+    seat.canvas = QImage();
+}
+
+/// A restarted seat unlinks its ring and creates a new one under the same name;
+/// the mapping this window still holds belongs to the old object, which nobody
+/// writes any more. The inode tells the two apart.
+bool Viewer::ring_replaced(const Seat& seat) const {
+    if (seat.base == nullptr || seat.fd < 0) {
+        return false;
+    }
+    struct stat now {};
+    const QByteArray path = QStringLiteral("/dev/shm/%1").arg(seat.ring_name).toUtf8();
+    if (::stat(path.constData(), &now) != 0) {
+        return false; // gone between frames: the next paint opens whatever appears
+    }
+    struct stat mapped {};
+    if (::fstat(seat.fd, &mapped) != 0) {
+        return false;
+    }
+    return now.st_dev != mapped.st_dev || now.st_ino != mapped.st_ino;
+}
+
 /// Copy the newest complete slot into `canvas`. The producer bumps `seq` with a
 /// release store only after the slot is fully written, so a torn frame is
 /// detected by re-reading the sequence after the copy.
@@ -220,6 +254,10 @@ void Viewer::paintEvent(QPaintEvent*) {
     for (int i = 0; i < seats_.size(); ++i) {
         Seat& seat = seats_[i];
         if (seat.base == nullptr) {
+            open_ring(seat);
+        } else if (ring_replaced(seat)) {
+            log(QStringLiteral("viewer: ring %1 was replaced, re-attaching").arg(seat.ring_name));
+            close_ring(seat);
             open_ring(seat);
         }
         grab_frame(seat);

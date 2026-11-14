@@ -123,6 +123,11 @@ touch are playability polish and may slip to Milestone 4.
       with min/avg/max and an fps<55 list. Built for human-driven sessions.
 - [ ] Soak a human-driven 4P session with the sampler running (race, several
       races, pause/exit) and triage whatever the report flags.
+- [x] **Seat watchdog** (2026-11-14): a seat whose process exits or whose ring publishes
+      nothing for 15 s is restarted in place (ring unlinked first, room given one spare slot
+      so the rejoin is not `RoomIsFull`), and the viewer re-attaches when the object is
+      replaced. Verified with SIGKILL and SIGSTOP on individual seats: one restart each,
+      four live tiles afterwards, 62.5 fps, clean `EXIT=0`. History (28).
 - [x] **One window** — `tools/quadview` adopts the four seat windows (XEmbed,
       X11/XWayland), spawned and torn down by the orchestrator. Verified: one
       window, four 959x516 tiles, 59-60 fps, keyboard/touch follow the pointer.

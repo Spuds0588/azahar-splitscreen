@@ -81,6 +81,10 @@ protected:
 
 private:
     void open_ring(Seat& seat);
+    /// Drop the mapping (a restarted seat replaces the object under it).
+    void close_ring(Seat& seat);
+    /// True when `/dev/shm/<ring>` is no longer the object this window mapped.
+    bool ring_replaced(const Seat& seat) const;
     bool grab_frame(Seat& seat);
     /// Tile rectangle (in this widget's pixels) each seat is drawn into.
     QRect tile_rect(int index) const;

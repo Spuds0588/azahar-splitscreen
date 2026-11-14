@@ -816,3 +816,28 @@ Verdict stays **no-go**, with the cause corrected in `plans/in-process-seats.md`
 (candidates and the bisect to run next are listed there). The four-process design
 remains the shipping path; the reusable wins from this spike are the thread-local
 `System`, one GL context per window, and the per-seat ring/socket/loop plumbing.
+
+## 2026-11-14 (18) - in-process seats: input proven delivered, guest refuses it
+
+Took the input gap of the four-seats-in-one-process spike to a measurement instead of
+a retry of coordinates: the tap is driven straight into a seat's input socket from the
+harness, and the seat's HID service is instrumented to show receipt.
+
+Two real drops were found and fixed. The spike never loaded an input profile, so HID
+created no devices at all and both touch and keys were discarded; and the touch factory
+was process-global, so every window would have shared the first seat's touch state.
+Each window now owns `emu_window_<ptr>` and `Core::System` carries a touch-device
+override that HID prefers, leaving single-window and four-process configs untouched.
+
+Measured, one clean four-seat run (53-57 fps each, 2 291 MB RSS, ~96 % CPU): a tap on
+seat 0's socket is accepted by seat 0's window and reported by seat 0's System's HID
+(`pressed=1 x=160 y=160`) with the other three seats' HID silent, and SIGTERM stops all
+four seats leaving 0 processes, 0 rings and 0 sockets. On Mario Kart 7 the guest ignores
+it: four different screens (dialog OK, 150cc row, Time Trials row with hold+move,
+character tile) each received the tap and kept their state, while A/START on the same
+seat advance four screens. Recorded as a distinct input-model blocker rather than
+"not proven", together with two measured limits: keys are still process-global, and with
+two or more seats every ring publishes a blank frame (1 seat: real picture), so a
+per-seat visual delta cannot be compared in a four-seat run yet.
+
+Verdict unchanged: **no-go** for one-process seats. See `plans/in-process-seats.md`.

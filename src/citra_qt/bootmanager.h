@@ -165,6 +165,10 @@ public:
     /// Destroy the previous run's child_widget which should also destroy the child_window
     void ReleaseRenderTarget();
 
+    /// Stops publishing to the shared-memory ring. Must happen before the
+    /// System behind it is shut down, or the timer touches a dead renderer.
+    void StopSharedFrames();
+
     void CaptureScreenshot(u32 res_scale, const QString& screenshot_path);
 
     /// Split-screen fork: publish every presented frame into `/dev/shm/<name>`

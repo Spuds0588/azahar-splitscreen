@@ -115,13 +115,19 @@ std::tuple<unsigned, unsigned> EmuWindow::ClipToTouchScreen(unsigned new_x, unsi
 }
 
 void EmuWindow::CreateTouchState() {
-    touch_state = global_touch_state.lock();
-    if (touch_state) {
-        return;
-    }
+    // Every window owns its touch state. One process can run several windows for
+    // different Systems, and a shared state would let a touch on one seat move the
+    // cursor of every other seat.
     touch_state = std::make_shared<TouchState>();
-    Input::RegisterFactory<Input::TouchDevice>("emu_window", touch_state);
-    global_touch_state = touch_state;
+    touch_device_name =
+        "emu_window_" + std::to_string(reinterpret_cast<std::uintptr_t>(this));
+    Input::RegisterFactory<Input::TouchDevice>(touch_device_name, touch_state);
+    // The historical name still points at the first window, for the single-window
+    // frontends whose configs name "engine:emu_window".
+    if (!global_touch_state.lock()) {
+        Input::RegisterFactory<Input::TouchDevice>("emu_window", touch_state);
+        global_touch_state = touch_state;
+    }
 }
 
 bool EmuWindow::TouchPressed(unsigned framebuffer_x, unsigned framebuffer_y) {

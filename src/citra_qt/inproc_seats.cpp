@@ -27,6 +27,7 @@
 #include <QTimer>
 
 #include "citra_qt/bootmanager.h"
+#include "common/settings.h"
 #include "core/core.h"
 #include "core/frontend/applets/default_applets.h"
 #include "input_common/main.h"
@@ -264,6 +265,19 @@ bool InProcSeats::BootSeat(Seat& seat, int index) {
         return false;
     }
 
+    // A config would normally fill the input profile; without it HID creates no
+    // devices at all, so touch and keys never reach the guest. Each seat names its
+    // own window's touch factory so a touch stays on the seat it was sent to.
+    auto& profile = Settings::values.current_input_profile;
+    seat.system->SetTouchDeviceOverride("engine:" + seat.window->GetTouchDeviceName());
+    profile.touch_device = "engine:emu_window";
+    if (profile.buttons[Settings::NativeButton::Start].empty()) {
+        profile.buttons[Settings::NativeButton::Start] = "engine:keyboard,code:77";
+    }
+    if (profile.buttons[Settings::NativeButton::A].empty()) {
+        profile.buttons[Settings::NativeButton::A] = "engine:keyboard,code:65";
+    }
+
     Core::System::ResultStatus result;
     {
         const auto scope = seat.window->Acquire();
@@ -447,6 +461,9 @@ void InProcSeats::Shutdown() {
                 seat->emu_thread->wait(2000);
             }
             seat->emu_thread.reset();
+        }
+        if (seat->window) {
+            seat->window->StopSharedFrames();
         }
         if (seat->system->IsPoweredOn()) {
             seat->system->Shutdown();

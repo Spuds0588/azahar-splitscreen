@@ -243,6 +243,13 @@ public:
      * Gets the framebuffer layout (width, height, and screen regions)
      * @note This method is thread-safe
      */
+    /// Name this window's touch device factory is registered under. A frontend that
+    /// runs several windows in one process points each System's input profile at it,
+    /// so a touch on one window cannot move another seat's cursor.
+    [[nodiscard]] const std::string& GetTouchDeviceName() const {
+        return touch_device_name;
+    }
+
     const Layout::FramebufferLayout& GetFramebufferLayout() const {
         return framebuffer_layout;
     }
@@ -335,6 +342,7 @@ private:
 
     void CreateTouchState();
 
+
     Layout::FramebufferLayout framebuffer_layout; ///< Current framebuffer layout
 
     WindowConfig config{};        ///< Internal configuration (changes pending for being applied in
@@ -342,6 +350,7 @@ private:
     WindowConfig active_config{}; ///< Internal active configuration
 
     std::shared_ptr<TouchState> touch_state;
+    std::string touch_device_name;
 
     /**
      * Clip the provided coordinates to be inside the touchscreen area.

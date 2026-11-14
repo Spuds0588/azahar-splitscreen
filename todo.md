@@ -164,6 +164,11 @@ touch are playability polish and may slip to Milestone 4.
       Evidence and the next bisect in `plans/in-process-seats.md`, `history.md` (17).
       First pass (history (16)) had not yet built the per-seat loop and leaked the
       emulation thread on stop; both are fixed now.
+      Input measured (history (18)): a tap reaches only the addressed seat's HID
+      (`pressed=1`, its System only), but MK7 ignores synthetic touch on four screens
+      while A/START advance the same seat, keys are process-global, and two or more
+      seats publish blank frames. Touch per-System is done; keys and the blank-frame
+      cause are the open items.
 - [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted
       dump with no keys) instead of leaving four error dialogs on screen.
 - [ ] Resolution policy: 1× for 3–4, 2× for 2, no per-game overrides unless a

@@ -72,14 +72,85 @@ profile is fine and being in one process is what ends the seat.
 3. Memory is the only clear win (1.9 GB total vs ~3.4 GB for four processes); CPU is a
    wash (~74 % for three seats vs ~150 % for four processes).
 
+## Input, measured end to end
+
+The gap this closes: earlier passes could not show that a tap reaches a seat's guest.
+It now does, and the result is a guest-side refusal, not a broken path.
+
+**Delivery, four seats in one process.** A tap is a datagram to that seat's socket
+(`type 3` = touch press at framebuffer x,y, `type 5` = release); `Shutdown` of the
+path is: socket -> `GRenderWindow::ApplyForwardedInput` -> `EmuWindow::TouchPressed`
+-> per-System HID service. One clean run (`--inproc-seats 4`, xcb, frame 400x480,
+bottom screen `(40,240)-(360,480)`), tap `(200,400)` sent to `/tmp/azsh-inproc-p0.sock`:
+
+- receipt and acceptance on **seat 0's window only**: `touch win=seat0 x=200 y=400
+  accepted=1 frame=400x480 bottom=(40,240)-(360,480)`;
+- emulation-side receipt for **seat 0's System only**: HID reported
+  `pressed=1 x=160 y=160` (`x`/`y` are bottom-screen pixels: 0.5 x 320, 0.667 x 240),
+  then `pressed=0`; the other three seats' HID services logged nothing;
+- the run itself was **4/4 live at 53-57 fps**, one process, 2 291 MB RSS, ~96 % CPU;
+- SIGTERM: `stopped 4 seats`, **0 processes, 0 rings, 0 sockets**.
+
+Repeated with the instrumentation removed (the numbers above are from the receipt run;
+this one is the stripped build): 4/4 live at 54-57 fps, 2 326 MB RSS, ~96 % CPU, the
+tapped seat's hash differs for one sample with the animated top screen and returns to
+the same static frame as the other three, and SIGTERM again leaves 0 processes, 0 rings,
+0 sockets with no crash.
+
+**Two things were dropping the event.** Both are fixed in the tree:
+
+1. The spike loaded no input profile, so `Settings::values.current_input_profile`
+   was empty and HID's `LoadInputDevices` created **no devices at all**
+   (`CreateDevice("")`); touch and keys were silently discarded. The spike now sets
+   `engine:emu_window` plus `engine:keyboard,code:77` (START) and `code:65` (A).
+2. The touch factory was process-global (`global_touch_state` in `emu_window.cpp`):
+   every window shared the first window's `TouchState`, so one seat's tap would move
+   every seat's cursor. Each `EmuWindow` now registers `emu_window_<ptr>` and
+   `Core::System` carries a touch-device override (`SetTouchDeviceOverride`) that HID
+   prefers over the global profile, so each seat's HID binds its own window.
+   `engine:emu_window` still points at the first window, so single-window configs and
+   the four-process design are unchanged.
+
+**The guest ignores it.** Four touch targets on Mario Kart 7, each delivered (HID
+receipt logged for the target seat's System, no rejection by the layout):
+
+| screen | tap (frame coords) | HID receipt (bottom-screen px) | result |
+| --- | --- | --- | --- |
+| Mii "no Mii characters" dialog, OK button | `(200,400)` | `(160,160)` | dialog stays |
+| engine class, 150cc row | `(200,390)` | `(160,150)` | 50cc stays selected |
+| mode menu, Time Trials row, hold + move + release | `(200,300)` | `(160,60)` | Grand Prix stays selected |
+| character grid, Yoshi tile | `(330,275)` | `(290,35)` | grid unchanged |
+
+Each screen was sampled for 1.5-3 s after the tap: the published hash changes only
+with the animated top screen, never with the tap. The control on the same seat:
+`A` (key 65) and `START` (77) advance four screens (dialog -> logo -> character grid
+-> engine class -> mode menu), so the guest is running and consumes buttons.
+
+**Recorded as a distinct input-model blocker (the "b" outcome):** a tap addressed to
+one seat's socket reaches that seat's emulation, and only that seat's, but this title
+does not act on synthetic touch on any screen tried - so per-seat *touch* control
+cannot be validated with MK7, and the PRD's right-stick virtual touch cursor has no
+demonstrated path in this build yet. Two neighbouring limits, measured the same way:
+
+- **Keys cannot be per-seat.** `ApplyForwardedInput` presses `InputCommon::GetKeyboard()`,
+  a process-global, so a forwarded key moves every seat at once; only touch is
+  addressable per seat today.
+- **A per-seat picture only exists at one seat.** With 2 seats both rings publish a
+  blank frame (uniform, 2 distinct byte values); with 1 seat the ring carries the real
+  MK7 screen (88 distinct values). Sequence numbers keep advancing at 53-57 fps either
+  way, so the four-seat visual comparison in the done-bar cannot be made yet, and the
+  blank-frame cause (multi-seat readback) is unmeasured.
+
 ## Conditions for a go
 
 - Find and remove the shared state that ends a guest seat: start the two-seat case and
   break on `Core::System::SendSignal` / `svcExitProcess` to catch the caller, then
   bisect the globals above. Four seats must survive 60 s.
-- Make input per-seat: input device state must belong to a `System`, not to
-  `input_common`'s file-scope statics, and a seat's socket must not move another
-  seat's pad. A tap must change exactly one seat's frames.
+- Make keys per-seat: touch is per-System now (see above), keys are not -
+  `InputCommon::GetKeyboard()` is file-scope state in `input_common`, so a forwarded
+  key still moves every seat.
+- Find out why MK7 ignores delivered touch, or validate the path with a title that
+  consumes it; and why a ring carries a real picture at one seat but a blank one at two.
 - Keep the loop that is already proven: thread-local `Core::System::GetInstance`,
   one GL context per window, one ring and one socket per seat, one compositing window.
 
@@ -93,7 +164,12 @@ DISPLAY=:1 QT_QPA_PLATFORM=xcb QT_SCALE_FACTOR=1 QT_ENABLE_HIGHDPI_SCALING=0 \
 # tap a seat: python3 - <<'PY'
 # import socket, struct
 # s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-# s.sendto(struct.pack('<B3xIHH', 3, 0, 200, 360), '/tmp/azsh-inproc-p0.sock')
-# s.sendto(struct.pack('<B3xIHH', 5, 0, 0, 0), '/tmp/azsh-inproc-p0.sock')
+# s.sendto(struct.pack('<B3xIHH', 3, 0, 200, 400), '/tmp/azsh-inproc-p0.sock')   # touch at x,y
+# s.sendto(struct.pack('<B3xIHH', 5, 0, 0, 0), '/tmp/azsh-inproc-p0.sock')         # release
+# frames live in ring slots: header 64 B, w@8 h@12 stride@16 slots@24 seq@32,
+# newest frame at 64 + ((seq-1) % slots) * h * stride (RGBA8888, bottom-up)
+# the receipt lines quoted above came from temporary fprintf()s in
+# GRenderWindow::ApplyForwardedInput, the touch case there, and HID's touch block;
+# they are removed from the tree - re-add them to re-measure delivery.
 # PY
 ```

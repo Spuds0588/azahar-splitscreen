@@ -757,6 +757,13 @@ bool GRenderWindow::InitRenderTarget() {
     return true;
 }
 
+void GRenderWindow::StopSharedFrames() {
+    if (shm_timer) {
+        shm_timer->stop();
+    }
+    shm_frame.reset();
+}
+
 void GRenderWindow::ReleaseRenderTarget() {
     if (child_widget) {
         layout()->removeWidget(child_widget);

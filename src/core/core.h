@@ -546,6 +546,18 @@ private:
 
     std::unique_ptr<Core::ExclusiveMonitor> exclusive_monitor;
 
+public:
+    /// Touch device this System's HID service should create. A frontend that runs
+    /// several Systems in one process names each one's own window here: the input
+    /// profile is process-global, so without this every seat would read the same
+    /// window's touch state.
+    void SetTouchDeviceOverride(std::string name) {
+        touch_device_override = std::move(name);
+    }
+    [[nodiscard]] const std::string& GetTouchDeviceOverride() const {
+        return touch_device_override;
+    }
+
 private:
     static System s_instance;
     static inline thread_local System* s_current = nullptr;
@@ -553,6 +565,8 @@ private:
     Common::Event pending_work_event;
 
     std::atomic_bool is_powered_on{};
+
+    std::string touch_device_override;
 
     SaveStateStatus save_state_status = SaveStateStatus::NONE;
     SaveStateStatus save_state_request_status = SaveStateStatus::NONE;

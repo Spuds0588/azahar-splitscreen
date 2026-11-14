@@ -650,3 +650,52 @@ because a headless seat has no window to size its touch layout from.**
   `presented_fps` alongside each seat; or `./run.sh --start "<rom>" --players 4`
   for a session without the picker. The native-Wayland run is the same test with
   `AZAHAR_QT_PLATFORM=wayland` set.
+
+## 2026-11-13 (14) — native-Wayland run: seats yes, viewer window never exposed
+
+**Verdict: a 4-seat session works end to end on native Wayland as far as frames
+and input go; the viewer's window is never exposed by this compositor, so it
+presents nothing. The mission's "no XWayland for the viewer" acceptance item is
+therefore still open — and it is now recorded as a specific, reproducible
+failure rather than an unknown.**
+
+How it was run:
+`AZAHAR_QT_PLATFORM=wayland ./src-tauri/target/release/azahar-splitscreen
+--start "<rom>" --players 4`, with `WAYLAND_DISPLAY=wayland-0` and no `DISPLAY`.
+
+What worked (all measured, not inferred):
+- **Room and seats on native Wayland**: room open, 4 azahar + 1 viewer + 1 room
+  processes; every seat's `--stats` line reports 59–60 fps (speed ~99–100 %), so
+  the platform does not change emulation behaviour.
+- **Frames**: four 480x240 rings created and each publishing **~46–50 frames/s**
+  when sampled over 2 s (four seats share the box; xcb measured ~55 when fewer
+  seats were running).
+- **Input**: with both seats parked at MK7's title, a tap at frame (440,195) on
+  seat 1 only produced a **127.5/255** frame change (the game left the title)
+  while the control seat changed **0.04**. So the socket → touch → emulated
+  screen path is platform-independent.
+- **Teardown**: SIGTERM → 0 azahar processes, 0 `/dev/shm` rings, 0 sockets.
+
+What failed, precisely:
+- **The viewer never paints on native Wayland.** It starts, opens all four rings,
+  and creates a GL 4.6 core context, but `paintGL` is never called, so there is
+  no `presented_fps` line and nothing is shown. Temporary instrumentation (added,
+  measured, removed) reported `platform=wayland widget=1280x720 visible=1
+  exposed=0` windowed and `1829x985 ... exposed=0` frameless — the window is
+  created and sized but **never exposed**.
+- The compositor is not silent: `WAYLAND_DEBUG=1` shows `xdg_toplevel.configure`
+  arriving (3x), `xdg_surface.configure` (2x), and Mesa's EGL queue attaching and
+  committing buffers with `wl_callback.done` replies. `qdbus org.kde.KWin
+  /Compositor org.kde.kwin.Compositing.active` is `true`, type `gl2`.
+- Variants tried, all identical (context OK, no paint): `QT_OPENGL=software`,
+  `QT_WAYLAND_DISABLE_WINDOWDECORATION=1`, `QT_SCALE_FACTOR=1` +
+  `QT_ENABLE_HIGHDPI_SCALING=0`, windowed vs frameless fullscreen.
+- Read together with the X11 result (XWayland clients *are* exposed, but swap at
+  ~1.8 fps: `glxgears` itself), the pattern is "this session composites X11
+  windows and not new Wayland toplevels". That points at the session/compositor
+  state rather than at the viewer's code, but it is not proven — a human at the
+  machine should re-run this once and look at the screen.
+
+Next step if it reproduces with a live screen: treat it as a viewer bug and give
+the Wayland path a non-GL widget fallback (QPainter over `wl_shm`), or start the
+viewer on xcb while keeping the seats on Wayland (they are unmapped anyway).

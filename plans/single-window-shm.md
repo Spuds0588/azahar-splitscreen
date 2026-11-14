@@ -6,7 +6,13 @@ compositing, keys, touch and teardown are all verified (see `history.md` (12)
 and (13)). The one check still outstanding is **environment-blocked, not code**:
 presented fps, because this display's GL stack is stalled (`glxgears` 1.0-1.8
 FPS). Rerun with `./run.sh` + `tools/qa/monitor.sh report` once the screen is
-compositing; native Wayland is the same run with `AZAHAR_QT_PLATFORM=wayland`.
+compositing.
+
+**Native Wayland (partly met, `history.md` (14)):** the seats, their rings, the
+input sockets and teardown all work under `AZAHAR_QT_PLATFORM=wayland`; the
+viewer's window is never exposed by this session's compositor (`isExposed=0`
+although `xdg_toplevel.configure` arrives), so it presents nothing yet. Fix in
+the viewer (a `QPainter`/`wl_shm` fallback) or run the viewer on xcb.
 
 ## Why
 

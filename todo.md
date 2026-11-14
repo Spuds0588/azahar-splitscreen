@@ -145,6 +145,12 @@ touch are playability polish and may slip to Milestone 4.
       had to be fixed for it: the seat's touch layout was never sized (headless
       window) and the viewer mapped clicks to 400x480 instead of its own frame
       geometry. See `history.md` (13).
+- [ ] **Native-Wayland viewer (open)**: seats, frames, input and teardown all
+      work under `AZAHAR_QT_PLATFORM=wayland`, but the viewer's window is never
+      exposed (`isExposed=0`; `xdg_toplevel.configure` does arrive), so it
+      presents nothing. Reproduces with software GL, no decoration and both
+      window modes. Either fix it in the viewer (QPainter/`wl_shm` fallback) or
+      run the viewer on xcb. See `history.md` (14).
 - [ ] **Known blocked check (environment, not code): presented fps.**
       `glxgears` on this display is 1.0–1.8 FPS while nothing is composited, so
       every swap-paced loop reads ~1 Hz. Rerun when the screen is live:

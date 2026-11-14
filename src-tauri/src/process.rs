@@ -266,6 +266,12 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
         ),
     }
 
+    // A fresh slot has no extdata for the game yet, so the 3DS stops on "No
+    // extra data found. New extra data will be created." and waits for a tap
+    // (Monster Hunter Stories is the case here). The seats have no window to
+    // tap in, so clear it for the player.
+    clear_boot_prompt(sockets.clone());
+
     Ok(Session {
         room,
         instances,
@@ -378,6 +384,36 @@ fn terminate(child: &mut Child) {
     let _ = Command::new("kill")
         .args(["-KILL", &format!("-{pid}")])
         .status();
+}
+
+/// Confirm the one-time "No extra data found" prompt a fresh slot shows before a
+/// game that keeps data in extdata can boot. One tap on the touch screen's Close
+/// button, repeated so a seat that is still booting gets it as well.
+fn clear_boot_prompt(sockets: Vec<PathBuf>) {
+    std::thread::spawn(move || {
+        for delay in [10, 6, 6] {
+            sleep(Duration::from_secs(delay));
+            for socket in &sockets {
+                tap(socket, 200, 396);
+            }
+        }
+    });
+}
+
+/// One touch down/up pair at a 400x480 frame coordinate, the same datagram the
+/// viewer sends for a click on a tile.
+fn tap(socket: &Path, x: u16, y: u16) {
+    let Ok(datagram) = std::os::unix::net::UnixDatagram::unbound() else {
+        return;
+    };
+    let mut message = [0u8; 12];
+    message[8..10].copy_from_slice(&x.to_le_bytes());
+    message[10..12].copy_from_slice(&y.to_le_bytes());
+    for kind in [3u8, 5] {
+        message[0] = kind;
+        let _ = datagram.send_to(&message, socket);
+        sleep(Duration::from_millis(120));
+    }
 }
 
 pub fn log(path: &Path, line: &str) {

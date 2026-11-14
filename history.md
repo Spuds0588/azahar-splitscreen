@@ -1087,3 +1087,31 @@ fails with `BadMatch`. Use the viewer's own `--dump` for composition evidence an
 only as a smoke test; the tile-vs-ring pixel diff computed from `xwd` was 43-104 even when
 the diagonal (own seat) won every time, because the image is scaled 1.077x and the ring
 advances during the ~0.2 s between capture and read.
+
+## 2026-11-14 (25) - Fresh slots clear the "No extra data found" prompt themselves
+
+The prompt from (24) is the last manual step in a fresh session: a slot with no extdata for
+the game stops on "No extra data found. New extra data will be created." and only a touch on
+the bottom-screen Close button moves it on. Seats have no window, so `process.rs` now sends
+that tap for the player: `clear_boot_prompt` fires three times (10 s, 16 s, 22 s after the
+viewer starts), sending the same 12-byte touch datagrams the viewer sends, to every seat
+socket. No per-game table and no new flag - one coordinate, three tries, and it is a no-op
+in any game that has its data already.
+
+Reproduced the fresh-slot state by deleting `sdmc/.../extdata/00000000/00001BC6` from all
+four slots (extdata only; saves and NAND untouched), then `run.sh --start` MHS with nobody
+at the keyboard:
+
+| wall clock | ring md5 1..4 | what it is |
+| --- | --- | --- |
+| 10:52:22 | `7bee81 x4`, 85 values | the prompt, all four seats |
+| 10:52:32 | `4b24ed / bb1a9b / d5491f / d5491f` | past it, seats already diverging |
+| 10:52:52 | `6c5bb8 / 25f61c / 62dcff / 4c6066`, 88 | game content, 62.6 fps presented |
+
+`azahar-viewer --dump` at that point shows MHS's opening movie in all four tiles, and the
+extdata directory exists again in all four slots. SIGTERM: 0 processes, 0 rings, 0 sockets.
+
+**MK7 regression.** The taps land on MK7's boot screen, which ignores them: distinct rings at
+25 s (`957c05/21863d/89df5e/168b29`) and 40 s (`d7877f/4eda7e/3dccb9/e04b5d`), the usual
+all-black transition at 55 s, content again at 75 s (`8ef59f/a095d8/918dc2/ad8054`), 62.6 fps
+throughout, teardown 0/0/0.

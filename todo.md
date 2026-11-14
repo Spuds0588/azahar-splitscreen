@@ -189,9 +189,9 @@ touch are playability polish and may slip to Milestone 4.
       the viewer paints with QPainter because this compositor throttles GL swaps to ~1 fps,
       and `slots::prepare` uses the default two-screen layout because LargeScreen makes MHS
       abort with a system error dialog. 60-63 fps presented, distinct per-seat rings, SIGTERM
-      left 0 processes/rings/sockets. Evidence in `history.md` (24). Note: a fresh slot shows
-      MHS's "No extra data found" prompt once on the bottom screen and needs one tap per
-      seat; forwarded keys do not dismiss it.
+      left 0 processes/rings/sockets. Evidence in `history.md` (24). A fresh slot's "No extra
+      data found" prompt is now cleared without a player: `clear_boot_prompt` taps each seat
+      three times after the viewer starts (history (25)).
 - [ ] Pre-flight ROM check: flag a seat that fails to boot (e.g. an encrypted
       dump with no keys) instead of leaving four error dialogs on screen.
       Observed 2026-11-14: in the one-window spike this leaves four black tiles with only

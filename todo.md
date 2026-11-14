@@ -206,8 +206,10 @@ touch are playability polish and may slip to Milestone 4.
 - [ ] Screen-swap hint on first launch per slot (one overlay, dismissible).
 - [ ] Pause/exit: one hotkey that stops the whole session, not four windows.
 - [ ] Controller disconnect/reconnect handling per seat.
-- [ ] Optional: player badges (P1–P4) drawn by the orchestrator overlay —
-      only if a bare window proves ambiguous.
+- [x] **Player badges** (2026-11-14): the viewer draws a `P1`–`P4` chip beside each
+      tile's picture, so a couch can tell the seats apart without an overlay. Verified on a
+      4-player MK7 window capture (four badges, correct quadrants, 62.5 fps) and the
+      2-player default (`history.md` (27)).
 
 ## 🔴 Milestone 5 — acceptance (Mario Kart 7 benchmark)
 

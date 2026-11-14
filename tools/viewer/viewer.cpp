@@ -1,9 +1,11 @@
 #include "viewer.h"
 
 #include <QCursor>
+#include <QFontMetrics>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPen>
 
 #include <algorithm>
 #include <cstring>
@@ -237,6 +239,7 @@ void Viewer::paintEvent(QPaintEvent*) {
             painter.fillRect(image.adjusted(-3, -3, 3, 3), QColor(242, 242, 242));
         }
         painter.drawImage(image, seat.canvas);
+        draw_badge(painter, i);
     }
 
     ++presented_;
@@ -245,6 +248,42 @@ void Viewer::paintEvent(QPaintEvent*) {
     }
     paint_ns_ += clock_.nsecsElapsed() - started;
     log_stats();
+}
+
+/// A small tag in the tile's corner: the letterbox margin when the frame does not
+/// fill the tile (a 400x480 screen), so nothing of the game is covered, and the
+/// picture's own corner when it does. Translucent, so even then the game shows
+/// through it.
+void Viewer::draw_badge(QPainter& painter, int index) const {
+    const QRect tile = tile_rect(index);
+    const QRect image = image_rect(index);
+    const QString label = QStringLiteral("P%1").arg(index + 1);
+
+    QFont font = painter.font();
+    font.setBold(true);
+    font.setPixelSize(std::max(14, tile.height() / 26));
+    const QFontMetrics metrics(font);
+    const int pad = std::max(5, font.pixelSize() / 3);
+    const int box_width = metrics.horizontalAdvance(label) + pad * 2;
+    const int box_height = metrics.height() + pad;
+    // Sit right beside the picture, in the letterbox margin a portrait screen
+    // leaves, so the tag never covers the game; with no margin, go into the
+    // picture's own top-left corner.
+    int x = image.left() - box_width - pad;
+    if (x < tile.left() + pad) {
+        x = image.left() + pad;
+    }
+    const QRect box(x, image.top() + pad, box_width, box_height);
+
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setFont(font);
+    painter.setPen(QPen(QColor(242, 242, 242, 110), 1));
+    painter.setBrush(QColor(18, 18, 24, 200));
+    painter.drawRoundedRect(box, pad, pad);
+    painter.setPen(QColor(242, 242, 242));
+    painter.drawText(box, Qt::AlignCenter, label);
+    painter.restore();
 }
 
 void Viewer::dump_frame() {

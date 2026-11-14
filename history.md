@@ -1143,3 +1143,30 @@ orchestrator and that window - the four seats and the room are already gone. SIG
 `ROM not found: <path>`, so a bad path is on screen too. MK7 afterwards: four distinct rings
 (`635e84/62a0dc/0b9f03/3f1a81`, 88 values each) at 62.5 fps, `EXIT=0`, 0 leftovers - the
 normal path is untouched.
+
+## 2026-11-14 (27) - P1-P4 badges on the tiles
+
+A bare 2x2 of four identical screens tells a couch nothing about which pad is which seat.
+`Viewer::draw_badge` now paints a `P<seat+1>` chip per tile, right after that tile's
+`drawImage`: bold text at `tile.height()/26` px, a rounded fill of `QColor(18,18,24,200)` and
+a 1 px light border so it reads on black or on the game. It sits immediately left of the
+picture when the letterbox margin has room for it, which a 400x480 frame always does (the
+image is 431 px wide in a 960 px cell) - so nothing of the game is covered - and drops into
+the picture's top-left corner when the image fills the cell. Tiles, ring reading, the paint
+timer and input forwarding are untouched; the notice mode returns before the seat loop, so
+it never draws a badge.
+
+First pass put the chip in the tile's outer corner, and the capture showed why that is wrong:
+on a portrait frame it floated ~260 px away from its own picture, looking like a window
+label rather than a seat label. The chip was moved beside the picture and given the visible
+fill/border, then re-captured.
+
+| session | capture | fps | exit |
+| --- | --- | --- | --- |
+| MK7, 4 players | 1920x1034 window: P1 top-left tile, P2 top-right, P3 bottom-left, P4 bottom-right, each beside its picture | 62.5 (`paint_ms` 4.84) | 0, 0 processes/rings/sockets |
+| MK7, no `--players` (2) | 1920x1034 window: two tiles side by side, P1 and P2 | 62.6 | 0, 0 processes/rings |
+| `--message` notice | text and Esc hint only, no badges | - | - |
+
+The capture was `xwd -id <viewer>` converted with `xwdtopnm` and read back as an image, not
+inferred from logs. The 2-player badge is larger (tiles are twice as tall) and sits in the
+picture's corner because that layout leaves only ~49 px of margin.

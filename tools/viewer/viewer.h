@@ -21,6 +21,8 @@
 #include <QVector>
 #include <QWidget>
 
+class QPainter;
+
 #include <vector>
 
 /// One seat: its frame ring plus the socket its input goes to.
@@ -84,6 +86,8 @@ private:
     QRect tile_rect(int index) const;
     /// The console frame inside that tile, keeping the source aspect ratio.
     QRect image_rect(int index) const;
+    /// "P1".."P4" in a small translucent tag, so a couch can tell the seats apart.
+    void draw_badge(QPainter& painter, int index) const;
     /// Window position -> frame coordinates (the space the seat's touch expects).
     QPoint to_frame(const Seat& seat, const QRect& image, const QPoint& pos) const;
     void send_input(int seat, quint8 type, quint32 key, quint16 x, quint16 y);

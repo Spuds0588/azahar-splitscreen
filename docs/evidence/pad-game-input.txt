@@ -1,0 +1,31 @@
+# A real game reacting to a pad, per seat (Monster Hunter Stories, 2 seats)
+
+Harness: .freebuff/pad_game_test.py (this pass only; the numbers below are the
+pixel deltas it printed). Virtual pads 0 -> P1 (left tile), 1 -> P2 (right tile),
+mapped by the viewer's own log lines.
+
+It presses the seat's pad until its tile stops changing, so the measurement
+starts from a still screen - here the game's main menu (New Game / Load Game /
+Network Battle / DLC). Deltas are counted over the tile crop only.
+
+  settle 0: 239389   (opening movie still running)
+  settle 1: 440081   (still running)
+  settle 2:      0   (menu, still)
+
+  idle drift, no input, same wait:      848
+  own pad (P2, pad 1) d-pad down:     51913   <- selection moved
+  own pad d-pad up (back to start):     361   <- selection returned
+  other pad (P1, pad 0) d-pad down:    1902   <- unchanged (noise band)
+  own pad START on the menu:              0
+
+Captures: pad-game-menu-before.png (New Game highlighted) and
+pad-game-menu-after-pad.png (Network Battle highlighted, description line changed
+to "Battle against other players."). Both are half-size crops of the P2 tile.
+
+A second run of the same harness pressed START on the seat's own pad while the
+menu was up and measured 678614 changed pixels (the menu faded out into the new
+game), while a single A press at that menu changed 765.
+
+So: the pad's d-pad and START move this seat's console, the reverse press undoes
+it, and the other pad's identical press leaves the tile inside its noise band
+(1902 against an idle drift of 848 and a real move of 51913).

@@ -253,6 +253,17 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **Audio: player 1 only** (2026-11-15): seat 1 keeps the default output, seats 2-4 are
       muted onto the null sink (`@Variant` escaped ulong, because `output_type` is read as
       `u32`), so a 4-player session opens exactly one audio stream. History (36).
+- [x] **In-game pad verification** (2026-11-15): the seat's own pad moved Mario Kart 7's
+      main-menu selection (89,284 px against 5,172 idle) while the other pad's identical
+      press moved it 6,513 px, and the same held for a second title (Monster Hunter Stories:
+      51,913 / 848 idle / 1,902 other). `tools/qa/pad_game_test.py` reproduces it. History
+      (37), captures in `docs/evidence/`.
+- [ ] **MK7's long boot**: the title spends ~90-120 s on "Connecting to Nintendo Network" and
+      ignores input there, which reads as a hang. A line in the picker (or a "still loading"
+      hint on the tile) would stop the next session chasing a pad bug that is not there.
+- [ ] **Only two of the six test ROMs boot**: Kirby, Zelda Tri Force Heroes, Mario Party Top
+      100 and New Super Mario Bros. 2 all report "an encrypted or unsupported application",
+      so a bootable dump would widen QA past MK7 and MHS.
 - [ ] **Per-seat audio split** (next audio step): player 1's music with everyone's sound
       effects. A null sink is per console and all-or-nothing, so this needs core work: split
       the HLE audio stream into music and effects (or mix the muted seats' effects into

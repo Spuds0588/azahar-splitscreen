@@ -1567,3 +1567,51 @@ half-tilt on the stick is not expressible yet. And "player 1's music, everyone's
 effects" cannot be a setting - the null sink is all-or-nothing per console, so it needs core
 audio work (split the HLE audio stream into music and effects, or mix the other seats'
 effects in).
+
+## 2026-11-15 (37) - A pad plays Mario Kart 7, and why the title looked stuck
+
+The last pass proved the pad reached the guest with a homebrew counter; nobody had seen a
+game move. This pass did, and the earlier "the title is stuck on Connecting to Nintendo
+Network and ignores a pad Start" turned out to be **timing, not wiring**.
+
+**The boot wait.** MK7 sits on "Connecting to Nintendo Network" for roughly 90-120 s and does
+ignore input there, then continues on its own: at ~130 s one seat was already running its
+attract-mode demo race. Every check before this one sampled at 30 s, so the screen looked
+frozen forever. A second capture 40 s later still showed the same screen, which is what
+produced the wrong diagnosis. Nothing to fix: the game is waiting on its own network init.
+
+**The pad in the menu.** Two seats of MK7, virtual pads 0 -> P1 (left tile) and 1 -> P2, both
+mapped by the viewer's own log lines. Waiting ~150 s and pressing pad 0's START put P1 on the
+Mario Kart 7 main menu; from there:
+
+| step | P1 (pad 0) | P2 (pad 1) |
+| --- | --- | --- |
+| menu, before anything | Single Player highlighted | still loading |
+| pad 0 d-pad down | **Online Multiplayer highlighted** | Single Player highlighted |
+| pad 1 d-pad down | Online Multiplayer (unchanged) | **Online Multiplayer highlighted** |
+
+as pixel deltas over the tile crops: P1 89,284 on its own d-pad, 6,513 on the other pad's,
+with an idle drift of 5,172; P2 90,241 on its own d-pad. Captures:
+`docs/evidence/pad-game-mk7-{1-before,2-pad0-dpad,3-pad1-dpad}.png`.
+
+**A second title, for a still menu.** Monster Hunter Stories at its main menu:
+own pad d-pad down 51,913, the reverse press restored the highlight in 361, the other pad's
+identical press 1,902 against an idle drift of 848 (`pad-game-menu-*.png`). Pressing START on
+that menu faded it out into the new game (678,614), which is the "screen advancing" case.
+
+**Audio with four seats.** One `Azahar Output` node under PipeWire (`output_FL/FR` to the
+analog sink), no azahar node for seats 2-4; `p2`-`p4` still read `Null (1)` in their inis
+after the session. Same as history (36), re-checked here because the mission asks for it.
+
+**Tooling.** `tools/qa/pad_game_test.py` presses a seat's pad until its tile is still, then
+measures before/after and an isolation press. Its `--wait` flag exists because of MK7's long
+boot (`--wait 130`); the default 25 s is enough for a small game. Two bugs it needed: a
+window from a finished session keeps its geometry and `xwd` cannot read it (skip windows
+whose pid is gone), and `pgrep -f 'Release/azahar'` inside a cleanup shell matches that
+shell's own command line, so it must be written `Release/azah[a]r`.
+
+Also worth knowing before the next session: of the six ROMs in `Test Roms/`, only MK7 and
+Monster Hunter Stories boot; the other four report "an encrypted or unsupported application"
+despite "Decrypted" in their names. And the seat processes still create their own 1280x540
+windows - unmapped, so the visible session stays one window, but they show up in `xdotool`
+and must not be mistaken for the compositor window.

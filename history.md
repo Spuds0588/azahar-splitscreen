@@ -1299,3 +1299,26 @@ Two notes for the next session: the picker's `start_session` seeds the save sets
 the pre-flight boot check, so a dump that fails to boot still leaves the copy behind; and
 activating the picker above a fullscreen notice sends Esc to the picker, so the notice is
 closed by the next Start (or by clicking it first).
+
+## 2026-11-14 (32) - A save set replaces the seat's saves, it does not merge
+
+Importing used to copy over whatever was there, so a set with *less* progress inherited the
+seat's stale files and a "clean" set could not reset anyone. `saves::replace_tree` now
+removes the target tree first: `sdmc/Nintendo 3DS` and `nand/data/<title id>` become exactly
+what the set holds, and a set without one of those trees clears the seat's copy - which is
+what a clean save means. Zero files is therefore a valid import (logged `(clean)`), so the
+old "no save data to import" error is gone; instead a source must look like an Azahar user
+dir (`nand/` or `sdmc/`) or it is rejected as `not a save set`, which is what stops a typo
+pointing at `/tmp` from wiping a seat. Identity and the Mii database still stay put, and
+the picker's label now says the copy replaces that player's saves.
+
+| check | result |
+| --- | --- |
+| stale file in the seat, set without it | after `--import 2=/tmp/setA`: p2's tree hash equals the set exactly (`f5e059e9`), its `STALE` file gone, the set's `KEEP` present |
+| clean set (empty `nand/` and `sdmc/`) | log reads `(clean)`; p2's `sdmc/Nintendo 3DS` and `nand/data/0004000000030700` are gone; Mii still `Player 2`; 2 seats boot, 62.4 fps, `EXIT=0` |
+| path that is not a save set (`/tmp`) | `not a save set (no nand/ or sdmc/): /tmp`, `EXIT=1`, nothing left running |
+| window-driven grouped run after the change | MK7 2P from the picker, both seats `save set from /tmp/setA (12 files)`, p2 has `KEEP`, 62.6 fps, Stop left 0 processes and 0 rings |
+
+One consequence worth stating: the whole `sdmc/Nintendo 3DS` tree is replaced, so other
+titles' SD saves on that seat go too unless the set has them. That is the point of a set
+being the seat's save card, and it is why a clean set really resets.

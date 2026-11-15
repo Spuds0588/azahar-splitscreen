@@ -118,8 +118,11 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **Saves through the window** (2026-11-14): the picker's own controls were driven with
       xdotool, not just read - grouped seeds all four seats, per-player seeds only the named
       seat (sentinel files prove it), Stop leaves nothing running, and a bad path puts its
-      reason in the one-window notice instead of booting. Two bugs fixed on the way: the
-      per-player row ignored `hidden`, and the notice was CLI-only. History (31).
+      reason in the one-window notice instead of booting. Two bugs fixed on the way:       the per-player row ignored `hidden`, and the notice was CLI-only. History (31).
+- [x] **Save sets replace** (2026-11-14): seeding removes the seat's `sdmc/Nintendo 3DS`
+      and the title's NAND save data before copying, so a set with less progress resets the
+      seat (a set with neither tree clears both). A path without `nand/` or `sdmc/` is
+      rejected instead of wiping a seat, and `(clean)` is a valid import. History (32).
 - [ ] Shader cache warm-up: boot once, copy the cache into each slot.
 - [x] 4 players: measured at 1× — 60 FPS and 1.43 ms per seat, ~640–750 MB
       each, ~0.8 core total; 2×2 layout verified on 1080p (see `history.md`).

@@ -2,11 +2,14 @@
 //!
 //! A save set is an Azahar user dir - one of this orchestrator's `slots/pN/user`
 //! directories, or an existing single-player install. Copying one into a seat
-//! brings that player's SD saves, extra data and the title's NAND save data.
-//! What is deliberately *not* copied is everything that makes a seat a separate
-//! console: `nand/private` (SecureInfo_A and friends) and the shared Mii extdata
-//! (`nand/data/<system>/extdata/00048000/F000000B`), so each seat keeps its own
-//! identity and its own Mii name while playing with someone else's progress.
+//! brings that player's SD saves, extra data and the title's NAND save data,
+//! and *replaces* what the seat had: both trees are removed before the copy, so
+//! a set with no progress really resets the seat instead of inheriting stale
+//! files. What is deliberately *not* touched is everything that makes a seat a
+//! separate console: `nand/private` (SecureInfo_A and friends) and the shared
+//! Mii extdata (`nand/data/<system>/extdata/00048000/F000000B`), so each seat
+//! keeps its own identity and its own Mii name while playing someone else's
+//! progress.
 
 use crate::slots::Slot;
 use std::fs;
@@ -61,17 +64,21 @@ pub fn apply(slots: &[Slot], mode: &Mode, title: Option<u64>) -> Result<Vec<Stri
                 source.display()
             ));
         }
-        let files = copy_into(&source, &slot.user_dir, title)
-            .map_err(|error| format!("could not copy {} into {}: {error}", source.display(), slot.name))?;
-        if files == 0 {
+        if !source.join("nand").is_dir() && !source.join("sdmc").is_dir() {
             return Err(format!(
-                "{} has no save data to import ({})",
-                slot.name,
+                "not a save set (no nand/ or sdmc/): {}",
                 source.display()
             ));
         }
+        let files = copy_into(&source, &slot.user_dir, title)
+            .map_err(|error| format!("could not copy {} into {}: {error}", source.display(), slot.name))?;
+        // Zero files is a real choice: an empty set resets the seat to a new save.
+        let size = match files {
+            0 => "clean".to_string(),
+            files => format!("{files} files"),
+        };
         lines.push(format!(
-            "{}: save set from {} ({files} files)",
+            "{}: save set from {} ({size})",
             slot.name,
             source.display()
         ));
@@ -92,18 +99,33 @@ fn user_dir(path: &Path) -> PathBuf {
 
 fn copy_into(source: &Path, target: &Path, title: Option<u64>) -> io::Result<usize> {
     let mut files = 0;
-    let sd = source.join("sdmc").join("Nintendo 3DS");
-    if sd.is_dir() {
-        files += copy_tree(&sd, &target.join("sdmc").join("Nintendo 3DS"))?;
-    }
+    files += replace_tree(
+        &source.join("sdmc").join("Nintendo 3DS"),
+        &target.join("sdmc").join("Nintendo 3DS"),
+    )?;
     if let Some(title) = title {
         let name = format!("{title:016X}");
-        let nand = source.join("nand").join("data").join(&name);
-        if nand.is_dir() {
-            files += copy_tree(&nand, &target.join("nand").join("data").join(&name))?;
-        }
+        files += replace_tree(
+            &source.join("nand").join("data").join(&name),
+            &target.join("nand").join("data").join(&name),
+        )?;
     }
     Ok(files)
+}
+
+/// Make `target` exactly the source's tree: remove what the seat had first, so
+/// files the set does not contain cannot survive as stale progress. A source
+/// without the tree clears the seat's copy, which is what a clean save means.
+fn replace_tree(source: &Path, target: &Path) -> io::Result<usize> {
+    match fs::remove_dir_all(target) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    if !source.is_dir() {
+        return Ok(0);
+    }
+    copy_tree(source, target)
 }
 
 fn copy_tree(source: &Path, target: &Path) -> io::Result<usize> {

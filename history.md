@@ -1263,5 +1263,39 @@ Limits worth knowing: NAND extdata whose id is not the title id (some installed 
 is not covered - MK7 keeps its extra data on SD, which is the case tested. The copy assumes
 the same SD console-id directory as the source (all-zero in these slots); a real console id
 would need a mapping, which only matters once installed `.cia` saves are in scope.
-The picker gained `Saves` (keep / same for every player / per player, one path field each);
-it was compiled into the binary but not clicked through.
+The picker gained `Saves` (keep / same for every player / per player, one path field each).
+
+## 2026-11-14 (31) - Saves driven from the window, not just the CLI
+
+Driving the real picker (xdotool against the 900x640 Tauri window: type into fields, pick
+ROM/players/saves by type-ahead, click Start and Stop, capture with `xwd`) found two things
+that reading the HTML could not:
+
+- **The per-player fields were always visible.** `#seatRows { display: grid }` is an author
+  rule, so it beat the user-agent `[hidden] { display: none }`; the row now has
+  `#seatRows[hidden] { display: none }`.
+- **A failed start only updated the status line.** `show_message` (the one-window notice)
+  was called on the CLI path only, so a window-driven bad path went quiet on the TV. The
+  picker's command now keeps the notice as a child in `AppState`, shows it on a failed
+  start, closes any previous one on the next start, and closes it when the window or app
+  exits. A bad save path and an unreadable dump both land in that notice.
+
+The window-driven runs, all on MK7 with a sentinel file inside the save set:
+
+| action in the window | result |
+| --- | --- |
+| grouped, 4 players, `/tmp/gs` | four `save set from /tmp/gs (12 files)` lines, `GROUPED` in p1-p4, 4 seats + room + viewer, 62.4 fps |
+| same run, seat identity | p2's Mii database byte-identical before and after (`b13bb8f6`) and still holds `Player 2` |
+| per-seat, only P3 given `/tmp/ps` | one `Player 3` line, `PERS3` only in p3, the other three clean, 62.4 fps |
+| Stop button | 0 processes, 0 rings, 0 sockets, status `Stopped.` |
+| bad save path, grouped `/tmp/nope` | notice window reads `save set for Player 1 not found: /tmp/nope`; picker reads `Start failed: ...`; one process (the notice), no room |
+| Kirby (encrypted) picked by mistake | notice reads `This game did not boot ... Kirby's Extra Epic Yarn ...` - the same path covers the pre-flight check |
+
+CLI regression after the change: `--saves` on 2 players gave two lines and `EXIT=0`,
+`--import 2=` gave one line and `EXIT=0`, `--saves /tmp/nope` gave the message, the notice
+window and `EXIT=1`. All four Mii databases still hold their own name afterwards
+(`57a4503d`, `b13bb8f6`, `8179b2ce`, `a1d0bff5`), so no save copy touched identity.
+Two notes for the next session: the picker's `start_session` seeds the save sets *before*
+the pre-flight boot check, so a dump that fails to boot still leaves the copy behind; and
+activating the picker above a fullscreen notice sends Esc to the picker, so the notice is
+closed by the next Start (or by clicking it first).

@@ -15,6 +15,9 @@ use tauri::Manager;
 #[derive(Default)]
 struct AppState {
     session: Mutex<Option<process::Session>>,
+    /// The one-window notice for a start that failed (a bad save path, an
+    /// encrypted dump). Detached, so the app has to close it on the way out.
+    notice: Mutex<Option<std::process::Child>>,
 }
 
 #[tauri::command]
@@ -48,11 +51,28 @@ fn start_session(
         }
     }
     let (width, height) = monitor_size(&app);
+    let mut notice = state.notice.lock().map_err(|e| e.to_string())?;
+    close_notice(&mut notice);
     let mode = mode_from_picker(&save_mode, &save_grouped, &save_seats)?;
-    let session = process::start(&rom, players.clamp(2, 4), width, height, &mode)?;
+    let session = match process::start(&rom, players.clamp(2, 4), width, height, &mode) {
+        Ok(session) => session,
+        Err(error) => {
+            // Nothing booted: put the reason on the TV, not only in the picker.
+            *notice = process::show_message(&error);
+            return Err(error);
+        }
+    };
     let summary = session.summary.clone();
     *guard = Some(session);
     Ok(summary)
+}
+
+#[tauri::command]
+fn close_notice(notice: &mut Option<std::process::Child>) {
+    if let Some(mut child) = notice.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 #[tauri::command]
@@ -265,6 +285,9 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let state = window.state::<AppState>();
                 let session = state.session.lock().ok().and_then(|mut guard| guard.take());
+                if let Ok(mut notice) = state.notice.lock() {
+                    close_notice(&mut notice);
+                }
                 drop(session);
                 window.app_handle().exit(0);
             }
@@ -277,6 +300,9 @@ fn main() {
         if matches!(event, tauri::RunEvent::Exit) {
             let state = app.state::<AppState>();
             let session = state.session.lock().ok().and_then(|mut guard| guard.take());
+            if let Ok(mut notice) = state.notice.lock() {
+                close_notice(&mut notice);
+            }
             drop(session);
         }
     });

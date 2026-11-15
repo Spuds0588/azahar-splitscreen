@@ -13,7 +13,8 @@ then point a viewer at those paths:
         --seat azsh-a:/tmp/probe-p1.sock --seat azsh-b:/tmp/probe-p2.sock
 
 Each line is `<seconds> <socket> type=<t> key=<k> x=<x> y=<y>`, where type 3 is
-touch down, 4 touch move, 5 touch up, 1/2 a forwarded key.
+touch down, 4 touch move, 5 touch up, 1/2 a forwarded key, and 6 the circle pad
+(whose x/y are signed, y up, so a half-deflected stick reads about 16384).
 """
 
 import os
@@ -23,7 +24,8 @@ import struct
 import sys
 import time
 
-TYPES = {1: "key-down", 2: "key-up", 3: "touch-down", 4: "touch-move", 5: "touch-up"}
+TYPES = {1: "key-down", 2: "key-up", 3: "touch-down", 4: "touch-move", 5: "touch-up",
+         6: "circle-pad"}
 
 
 def main() -> int:
@@ -54,6 +56,9 @@ def main() -> int:
                     continue
                 # type, pad[3], key, x, y - see src/citra_qt/input_socket.h
                 kind, _p0, _p1, _p2, key, x, y = struct.unpack("<BBBBIHH", data[:12])
+                if kind == 6:  # circle pad: x/y are the bits of signed int16s
+                    x = struct.unpack("<h", struct.pack("<H", x))[0]
+                    y = struct.unpack("<h", struct.pack("<H", y))[0]
                 print(
                     f"{time.monotonic() - started:8.3f} {sockets[sock]:14s} "
                     f"type={kind}({TYPES.get(kind, '?')}) key={key} x={x} y={y}",

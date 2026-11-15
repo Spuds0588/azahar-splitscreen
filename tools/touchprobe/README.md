@@ -3,7 +3,8 @@
 A two-screen homebrew that prints what the emulated input reports, used to prove that a
 forwarded key or touch reaches a guest: bottom screen shows the last `x`/`y` in panel
 pixels, whether it is held, and how many presses it has seen; top screen shows how many
-key-down events arrived and the last key mask. `START` quits.
+key-down events arrived, the last key mask, and the circle pad's position (so a forwarded
+stick can be checked for magnitude, not just direction). `START` quits.
 
 No game needed, no savedata, so a tap either shows up here or the input path under
 test is not delivering touch.

@@ -2,7 +2,8 @@
 //
 // Minimal responder for the split-screen input spike: no game, no savedata, so a
 // tap or a key either shows up here or the path under test is not delivering input.
-// Top screen: last key-down mask and how many keys were seen.
+// Top screen: last key-down mask, how many keys were seen, and the circle pad's
+// position (so a forwarded stick can be checked for magnitude, not just direction).
 // Bottom screen: last touch position, whether it is held and how many presses.
 // START quits.
 #include <3ds.h>
@@ -18,6 +19,7 @@ int main(int argc, char** argv) {
     consoleSelect(&top_console);
     printf("\x1b[8;6HAZAHAR SPLIT-SEAT PROBE");
     printf("\x1b[10;6Hkeys=0 last=00000000");
+    printf("\x1b[11;6Hcircle x=  0 y=  0");
 
     consoleSelect(&bottom_console);
     printf("\x1b[2;2HAZAHAR TOUCHPROBE");
@@ -43,6 +45,12 @@ int main(int argc, char** argv) {
                    (unsigned long)last_key);
             consoleSelect(&bottom_console);
         }
+        consoleSelect(&top_console);
+        circlePosition circle;
+        hidCircleRead(&circle);
+        printf("\x1b[11;6Hcircle x=%3d y=%3d   ", (int)circle.dx, (int)circle.dy);
+        consoleSelect(&bottom_console);
+
         touchPosition touch;
         hidTouchRead(&touch);
         const bool pressed = (hidKeysHeld() & KEY_TOUCH) != 0;

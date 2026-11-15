@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <boost/optional.hpp>
 #include <boost/serialization/version.hpp>
 #include "common/common_types.h"
@@ -567,6 +568,19 @@ public:
         return key_device_override;
     }
 
+    /// Circle pad pushed by the viewer's forwarded analog events, in the input
+    /// layer's convention: x right, y up, both within the unit circle. Stays 0,0
+    /// until a pad is deflected, which is how HID knows to read the profile's own
+    /// device (keyboard arrows) instead.
+    void SetPadAnalog(float x, float y) {
+        pad_analog_x.store(x, std::memory_order_relaxed);
+        pad_analog_y.store(y, std::memory_order_relaxed);
+    }
+    [[nodiscard]] std::tuple<float, float> GetPadAnalog() const {
+        return {pad_analog_x.load(std::memory_order_relaxed),
+                pad_analog_y.load(std::memory_order_relaxed)};
+    }
+
 private:
     static System s_instance;
     static inline thread_local System* s_current = nullptr;
@@ -577,6 +591,8 @@ private:
 
     std::string touch_device_override;
     std::string key_device_override;
+    std::atomic<float> pad_analog_x{0.0f};
+    std::atomic<float> pad_analog_y{0.0f};
 
     SaveStateStatus save_state_status = SaveStateStatus::NONE;
     SaveStateStatus save_state_request_status = SaveStateStatus::NONE;

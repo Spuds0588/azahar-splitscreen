@@ -114,6 +114,30 @@ DirectionState GetStickDirectionState(s16 circle_pad_x, s16 circle_pad_y) {
     return state;
 }
 
+namespace {
+/// Circle pad for a seat whose pad input arrives from the viewer. While the
+/// forwarded position is off centre it wins; when nothing is driving the stick it
+/// is 0,0 and the profile's own device is read, so a seat without a controller
+/// still steers with the keyboard arrows its profile binds.
+class ForwardedCirclePad final : public Input::AnalogDevice {
+public:
+    ForwardedCirclePad(Core::System& system_, std::unique_ptr<Input::AnalogDevice> fallback_)
+        : system(system_), fallback(std::move(fallback_)) {}
+
+    std::tuple<float, float> GetStatus() const override {
+        const auto [x, y] = system.GetPadAnalog();
+        if (x != 0.0f || y != 0.0f) {
+            return {x, y};
+        }
+        return fallback ? fallback->GetStatus() : std::make_tuple(0.0f, 0.0f);
+    }
+
+private:
+    Core::System& system;
+    std::unique_ptr<Input::AnalogDevice> fallback;
+};
+} // namespace
+
 void Module::LoadInputDevices() {
     LOG_DEBUG(Frontend, "Loading input devices");
     // Each System can name its own keyboard factory, so a key pressed in one window
@@ -133,8 +157,10 @@ void Module::LoadInputDevices() {
                    Settings::values.current_input_profile.buttons.begin() +
                        Settings::NativeButton::BUTTON_HID_END,
                    buttons.begin(), make_button);
-    circle_pad = Input::CreateDevice<Input::AnalogDevice>(
-        Settings::values.current_input_profile.analogs[Settings::NativeAnalog::CirclePad]);
+    circle_pad = std::make_unique<ForwardedCirclePad>(
+        system, Input::CreateDevice<Input::AnalogDevice>(
+                    Settings::values.current_input_profile.analogs
+                        [Settings::NativeAnalog::CirclePad]));
     motion_device = Input::CreateDevice<Input::MotionDevice>(
         Settings::values.current_input_profile.motion_device);
     touch_device = Input::CreateDevice<Input::TouchDevice>(

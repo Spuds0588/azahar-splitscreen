@@ -268,9 +268,12 @@ touch are playability polish and may slip to Milestone 4.
       effects. A null sink is per console and all-or-nothing, so this needs core work: split
       the HLE audio stream into music and effects (or mix the muted seats' effects into
       seat 1's output) before it reaches the backend.
-- [ ] **Analog sticks**: both sticks currently emit arrow keys through
-      `analog_from_button`, so the circle pad is full deflection in eight directions. A
-      percent-scaled axis needs either an analog spec per seat or a forwarded analog event.
+- [x] **Analog sticks** (2026-11-15): the left stick now sends its real position (a
+      type-6 datagram, int16 x/y) instead of arrow keys, and HID hands it to the console as
+      the circle pad; a seat with no controller still steers with the profile's arrow keys.
+      Verified in the guest (`x=77` at half, `154` at full, `y=77` at half up), on the wire,
+      and through a pad, with a second pad's deflection leaving the first seat centred.
+      History (38), `docs/evidence/pad-analog.*`.
 - [ ] **Save-set integrity**: after importing a set, MK7 says "The save data is corrupted
       and will now be reset." even though the copied files are identical across slots.
       Chase the NAND save metadata that pairs with the SD save before trusting imports.

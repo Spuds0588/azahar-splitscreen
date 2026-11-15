@@ -1,15 +1,21 @@
 // Input socket: the split-screen consumer side of input for a headless seat.
 //
 // A seat that draws into shared memory has no window of its own to receive
-// events, so the viewer forwards keys and touch as 12-byte datagrams to a unix
-// datagram socket this instance owns. See `plans/single-window-shm.md`.
+// events, so the viewer forwards keys, touch and the circle pad as 12-byte
+// datagrams to a unix datagram socket this instance owns. See
+// `plans/single-window-shm.md`.
 //
 // Message layout (little-endian):
-//   u8  type   1 = key down, 2 = key up, 3/4/5 = touch down/move/up
+//   u8  type   1 = key down, 2 = key up, 3/4/5 = touch down/move/up,
+//              6 = circle pad
 //   u8  pad[3]
-//   u32 key    Qt::Key for key events, unused for touch
-//   u16 x      touch position in console screen pixels
-//   u16 y
+//   u32 key    Qt::Key for key events, unused for touch and the circle pad
+//   u16 x      touch position in console screen pixels; for type 6, the circle
+//              pad's x as the bits of a signed int16
+//   u16 y      the same for the circle pad's y, which points up
+//
+// The circle pad travels as the stick's own position, not as arrow keys, so a
+// half-deflected stick is a half-deflected circle pad rather than a full one.
 
 #pragma once
 

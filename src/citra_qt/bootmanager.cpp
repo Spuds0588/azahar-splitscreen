@@ -879,6 +879,14 @@ void GRenderWindow::ApplyForwardedInput(const InputMessage& message) {
     case 5:
         TouchReleased();
         break;
+    case 6: {
+        // Circle pad: the two u16 fields carry signed int16 values (x right, y up),
+        // which HID scales to the console's own +/-0x9A range.
+        const auto x = static_cast<s16>(message.x);
+        const auto y = static_cast<s16>(message.y);
+        system.SetPadAnalog(x / 32767.0f, y / 32767.0f);
+        break;
+    }
     default:
         break;
     }

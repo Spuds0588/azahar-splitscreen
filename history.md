@@ -1615,3 +1615,45 @@ Monster Hunter Stories boot; the other four report "an encrypted or unsupported 
 despite "Decrypted" in their names. And the seat processes still create their own 1280x540
 windows - unmapped, so the visible session stays one window, but they show up in `xdotool`
 and must not be mistaken for the compositor window.
+
+## 2026-11-15 (38) - The circle pad gets the stick's real position
+
+Until now the left stick was forwarded as the four arrow keys the profile binds through
+`analog_from_button`, so the console saw a full-deflection circle pad in eight directions:
+a half-tilt of the stick steered like a full one. A 3DS circle pad is an axis, and games
+expect the magnitude (Mario Kart's steering is the obvious one), so it now travels as its
+own value.
+
+**The message.** A seventh datagram type, `6`, using the same 12-byte struct: the two `u16`
+fields hold the bits of two signed int16s, x right and y up. No size change, no extra
+socket, and the seat needs nothing but the existing input socket.
+
+**The path.** The viewer sends the raw stick position (SDL's -32768..32767, y flipped to the
+input layer's "up is positive"), and only when it moved by more than ~1/64 of the travel, so
+a resting stick is silent. `GRenderWindow::ApplyForwardedInput` turns it into a -1..1 pair on
+`Core::System`. HID wraps the profile's circle pad in a `ForwardedCirclePad`: while the
+forwarded position is off centre it wins, and while it is 0,0 the profile's own device is
+read - which is why a seat with no controller still steers with the arrow keys its profile
+binds, exactly as before.
+
+**Verified in three places** (`docs/evidence/pad-analog.txt`):
+
+- the guest, sent known values straight to a seat socket: 0.50 right reads `x=77`, 1.00
+  right `x=154`, 0.71 up `y=109`, centred `0,0` - HID's own +/-0x9A range;
+- the viewer, virtual pad driven with raw axis values: `8192 / 16384 / 32767 / 0,+16384` on
+  P1's socket, and nothing when the stick rests;
+- the whole stack with a pad: 50% reads 77, 100% reads 154, 50% up reads `y=77`, centred
+  `0,0`, and P2's pad at full deflection leaves P1 at `0,0`.
+
+`tools/touchprobe` now prints `hidCircleRead` on its top screen, which is what makes the
+guest side visible at all.
+
+**One bug worth remembering.** The axis handler had already normalised the stick to -1..1,
+so the first version (which took that float as an int and compared it against a raw-scale
+threshold) silently never sent anything. The socket probe printing zero datagrams is what
+caught it - the viewer looked completely healthy in its own log.
+
+**Not done:** the viewer applies no deadzone of its own. A stick that rests more than about
+1.5% off centre reads as a permanent slight deflection, which games' own deadzones absorb;
+if a worn controller drifts more than that, a deadzone belongs in `pad_stick`. The right
+stick keeps its own deadzone for the touch pointer, which is unchanged.

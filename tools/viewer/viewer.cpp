@@ -84,10 +84,10 @@ constexpr PadKey kPadKeys[] = {
 };
 /// Triggers are axes, so they are read with a threshold rather than a button.
 constexpr quint32 kTriggerKeys[] = {49, 50}; // ZL, ZR
-/// Left stick -> circle pad: the arrow keys the profile maps to the analog with
-/// `analog_from_button`, which is how a keyboard already gets a circle pad.
-constexpr quint32 kStickKeys[] = {16777235, 16777237, 16777234, 16777236}; // up, down, left, right
-constexpr float kStickPress = 0.5f;
+/// Left stick -> circle pad, sent as its real position rather than four arrow
+/// keys, so a half-deflected stick is a half-deflected circle pad. A change of
+/// less than this (about 1/64 of the travel) is stick noise and is not sent.
+constexpr int kStickStep = 512;
 
 /// Right-stick touch pointer. The deadzone is the usual stick slack (about a
 /// fifth of travel), and the speed is in console pixels per second: 320 px/s
@@ -733,33 +733,19 @@ void Viewer::pad_button(Pad& pad, int sdl_button, bool down) {
     }
 }
 
-/// The left stick is the circle pad. The seat profile turns those arrow keys
-/// into an analog axis (`analog_from_button`), so the game sees a real circle
-/// pad rather than four d-pad directions; only direction changes are sent, so a
-/// held stick does not spam the socket.
-void Viewer::pad_stick(Pad& pad, float x, float y) {
-    quint32 dirs = 0;
-    if (y < -kStickPress) {
-        dirs |= 1u;
+/// The left stick is the circle pad, with the deflection it was given. SDL hands
+/// over -32768..32767 with y pointing down; the seat takes the input layer's
+/// analog convention instead (x right, y up), so y is flipped here and the seat
+/// scales both to the console's range.
+void Viewer::pad_stick(Pad& pad, int x, int y) {
+    const int up = -std::clamp(y, -32767, 32767);
+    if (std::abs(x - pad.left_x) < kStickStep && std::abs(up - pad.left_y) < kStickStep) {
+        return;
     }
-    if (y > kStickPress) {
-        dirs |= 2u;
-    }
-    if (x < -kStickPress) {
-        dirs |= 4u;
-    }
-    if (x > kStickPress) {
-        dirs |= 8u;
-    }
-    const quint32 changed = dirs ^ pad.dirs;
-    for (int i = 0; i < 4; ++i) {
-        if ((changed & (1u << i)) == 0) {
-            continue;
-        }
-        const bool down = (dirs & (1u << i)) != 0;
-        send_input(pad.seat, down ? 1 : 2, kStickKeys[i], 0, 0);
-    }
-    pad.dirs = dirs;
+    pad.left_x = static_cast<qint16>(x);
+    pad.left_y = static_cast<qint16>(up);
+    send_input(pad.seat, 6, 0, static_cast<quint16>(pad.left_x),
+               static_cast<quint16>(pad.left_y));
 }
 
 /// An unplugged pad must not leave a button held in the console, and neither may
@@ -770,10 +756,8 @@ void Viewer::release_pad(Pad& pad) {
             send_input(pad.seat, 2, kPadKeys[i].key, 0, 0);
         }
     }
-    for (int i = 0; i < 4; ++i) {
-        if (pad.dirs & (1u << i)) {
-            send_input(pad.seat, 2, kStickKeys[i], 0, 0);
-        }
+    if (pad.left_x != 0 || pad.left_y != 0) {
+        send_input(pad.seat, 6, 0, 0, 0); // centred: the pad left the circle pad
     }
     for (int i = 0; i < 2; ++i) {
         if (pad.triggers[i]) {
@@ -781,7 +765,8 @@ void Viewer::release_pad(Pad& pad) {
         }
     }
     pad.buttons = 0;
-    pad.dirs = 0;
+    pad.left_x = 0;
+    pad.left_y = 0;
     pad.triggers[0] = false;
     pad.triggers[1] = false;
 }
@@ -1037,12 +1022,10 @@ void Viewer::poll_pads() {
                 break;
             }
             case SDL_CONTROLLER_AXIS_LEFTX:
-                pad.left_x = value;
-                pad_stick(pad, pad.left_x, pad.left_y);
+                pad_stick(pad, event.caxis.value, pad.left_y);
                 break;
             case SDL_CONTROLLER_AXIS_LEFTY:
-                pad.left_y = value;
-                pad_stick(pad, pad.left_x, pad.left_y);
+                pad_stick(pad, pad.left_x, event.caxis.value);
                 break;
             case SDL_CONTROLLER_AXIS_RIGHTX:
             case SDL_CONTROLLER_AXIS_RIGHTY:

@@ -1,0 +1,60 @@
+# The circle pad with a real stick position (not four directions)
+
+Before this pass the left stick was forwarded as the four arrow keys the profile
+binds with `analog_from_button`, so the console only ever saw full deflection in
+eight directions. It now travels as its own datagram (type 6, the stick's int16
+x/y, x right and y up) and the seat hands it to HID, which scales it to the
+console's +/-0x9A (154) range.
+
+Three measurements, each independent:
+
+## 1. The guest, given a known position
+
+`tools/touchprobe` now prints the circle pad (`hidCircleRead`) on its top screen.
+Sending type-6 datagrams straight to a seat's socket (`slots/Player 1.sock`):
+
+| sent (int16) | fraction | console reads |
+| --- | --- | --- |
+| 16384, 0 | 0.50 right | x=77, y=0 |
+| 32767, 0 | 1.00 right | x=154, y=0 |
+| 0, 23170 | 0.71 up | x=0, y=109 |
+| 0, 0 | centred | x=0, y=0 |
+
+`docs/evidence/pad-analog-half.png`, `-full.png`, `-up.png`.
+
+## 2. The viewer, with a scripted stick
+
+Standalone viewer plus `tools/qa/touch_probe.py` on the seat sockets, virtual pad
+0 driven with `lx`/`ly` (raw SDL axis values):
+
+    type=6(circle-pad) x=8192  y=0        # 25% right
+    type=6(circle-pad) x=16384 y=0        # 50% right
+    type=6(circle-pad) x=32767 y=0        # 100% right
+    type=6(circle-pad) x=0     y=16384    # 50% up (SDL sends -16384)
+    type=6(circle-pad) x=-32767 y=0       # 100% left
+    type=6(circle-pad) x=0     y=0        # centred
+
+all on P1's socket only, and only when the value moved by more than ~1/64 of the
+travel.
+
+## 3. The whole stack, pad in hand
+
+Two seats of the probe homebrew, pads attached, stick moved with the injector:
+
+| pad 0 stick | console (P1) | console (P2) |
+| --- | --- | --- |
+| 50% right | circle x=77  y=0 | - |
+| 100% right | circle x=154 y=0 | - |
+| 50% up | circle x=0  y=77 | - |
+| centred | circle x=0  y=0 | - |
+| - | circle x=0  y=0 (unchanged) | circle x=154 y=0 (pad 1) |
+
+`docs/evidence/pad-analog-per-seat.png` is that last row: P2's pad fully
+deflected, P1's console still centred.
+
+## The keyboard still works
+
+A seat with no controller steers with the arrows its profile binds, because the
+forwarded position is only used while it is off centre and 0,0 falls back to the
+profile's own device. A forwarded Left key with no pad attached reads
+`circle x=-154` (`pad-analog-arrow-fallback.png`).

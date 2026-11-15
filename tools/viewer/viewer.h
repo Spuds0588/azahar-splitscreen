@@ -86,11 +86,12 @@ struct Pad {
     /// frame) only sends the key changes; the same mask lets an unplugged pad
     /// release everything it was holding instead of leaving a button stuck.
     quint32 buttons = 0;
-    /// Circle-pad directions from the left stick: bit order up, down, left, right.
-    quint32 dirs = 0;
     bool triggers[2] = {false, false};
-    float left_x = 0;
-    float left_y = 0;
+    /// Raw left-stick position, as SDL reports it (y down). The seat gets the
+    /// circle pad instead: these two are the last values sent, so a resting stick
+    /// is quiet and an unplug knows whether to send a neutral position.
+    qint16 left_x = 0;
+    qint16 left_y = 0;
 };
 
 class Viewer : public QWidget {
@@ -179,7 +180,7 @@ private:
     void pad_button(Pad& pad, int sdl_button, bool down);
     /// Left stick -> circle pad, as the arrow keys the seat profile maps onto the
     /// analog. Only the directions that changed are sent.
-    void pad_stick(Pad& pad, float x, float y);
+    void pad_stick(Pad& pad, int x, int y);
     /// Release everything a pad was holding, so nothing stays pressed.
     void release_pad(Pad& pad);
     void draw_pointer(QPainter& painter, int index);

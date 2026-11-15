@@ -88,3 +88,6 @@ Test Roms/
 /src-tauri/gen/
 # single-window viewer build
 /tools/viewer/build/
+
+# QA-only pad injector binary
+/tools/qa/virtual_pads

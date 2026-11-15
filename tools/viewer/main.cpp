@@ -44,6 +44,7 @@ int main(int argc, char* argv[]) {
     QHash<QString, QString> restart_paths;
     QString message;
     QString view_mode;
+    QString view_file;
     QString title = QStringLiteral("Azahar Splitscreen");
     QString dump_path;
     quint64 dump_frame = 0;
@@ -72,6 +73,8 @@ int main(int argc, char* argv[]) {
             message = QString::fromLocal8Bit(argv[++i]);
         } else if (arg == QLatin1String("--view") && i + 1 < argc) {
             view_mode = QString::fromLocal8Bit(argv[++i]);
+        } else if (arg == QLatin1String("--view-file") && i + 1 < argc) {
+            view_file = QString::fromLocal8Bit(argv[++i]);
         } else if (arg == QLatin1String("--windowed")) {
             windowed = true;
         } else if (arg == QLatin1String("--title") && i + 1 < argc) {
@@ -84,7 +87,8 @@ int main(int argc, char* argv[]) {
     }
     if (seats.isEmpty() && message.isEmpty()) {
         fprintf(stderr,
-                "usage: azahar-viewer [--windowed] [--view both|top] --seat <ring[:socket]> …\n");
+                "usage: azahar-viewer [--windowed] [--view both|top] [--view-file <path>] "
+                "--seat <ring[:socket]> …\n");
         return 1;
     }
     for (auto& seat : seats) {
@@ -92,8 +96,15 @@ int main(int argc, char* argv[]) {
     }
     Viewer viewer(seats, message);
     viewer.setWindowTitle(title);
+    if (!view_file.isEmpty()) {
+        viewer.set_view_file(view_file);
+    }
+    // A one-run override: it opens in this layout but is not what the next
+    // session resumes, which is the layout the player left it in.
     if (view_mode == QLatin1String("top")) {
-        viewer.set_view(View::Top);
+        viewer.set_view(View::Top, false);
+    } else if (view_mode == QLatin1String("both")) {
+        viewer.set_view(View::Both, false);
     }
     if (!dump_path.isEmpty() && dump_frame > 0) {
         viewer.set_dump(dump_path, dump_frame);

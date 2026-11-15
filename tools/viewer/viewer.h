@@ -21,6 +21,7 @@
 #include <QTimer>
 #include <QVector>
 #include <QWidget>
+#include <SDL.h>
 
 class QPainter;
 
@@ -56,8 +57,20 @@ struct Seat {
 
     QImage canvas; // newest frame, top-down BGRA (Format_ARGB32 on LE)
 
-    /// True while this seat's peek key is held (only meaningful in `View::Top`).
+    /// True while this seat's peek button is held (its F5-F8 key, or its pad's
+    /// shoulder). Input truth, independent of layout: the tile only shows the
+    /// touch screen when the layout is `Top`.
     bool peek = false;
+};
+
+/// One gamepad, bound to the seat its player sits at. The seat is fixed for as
+/// long as the pad stays plugged in, so a peek always lands on its own tile.
+struct Pad {
+    SDL_GameController* controller = nullptr; // mapped pad (SDL knows its buttons)
+    SDL_Joystick* joystick = nullptr;         // fallback for pads SDL cannot map
+    SDL_JoystickID instance = -1;
+    int seat = -1;
+    QString name;
 };
 
 class Viewer : public QWidget {
@@ -84,8 +97,14 @@ public:
         return selected_;
     }
 
-    /// Initial layout; Tab switches it while the session runs.
-    void set_view(View view);
+    /// Initial layout; Tab switches it while the session runs. `persist` is
+    /// false for a one-run override (`--view`), which must not become the next
+    /// session's layout.
+    void set_view(View view, bool persist = true);
+
+    /// Where the last used layout is remembered. The default is relative to the
+    /// working directory, which the orchestrator sets to the repo root.
+    void set_view_file(const QString& path);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -118,7 +137,18 @@ private:
     QRect image_rect(int index) const;
     /// Swallow a peek key for the seat that owns it; true when it was one.
     bool handle_peek(int key, bool press);
+    /// The one place a peek is set, for keys and pads alike: they must behave
+    /// identically, and a peek must never be able to land on another seat.
+    void set_peek(int seat, bool held);
     void toggle_view();
+    void load_view();
+    void save_view() const;
+    /// Open the pads already attached and start polling for shoulder presses,
+    /// including pads plugged in or pulled out while the session runs.
+    void init_pads();
+    void poll_pads();
+    void add_pad(int device_index);
+    void remove_pad(SDL_JoystickID instance);
     bool event(QEvent* event) override;
     /// "P1".."P4" in a small translucent tag, so a couch can tell the seats apart.
     void draw_badge(QPainter& painter, int index) const;
@@ -134,11 +164,15 @@ private:
     void dump_frame();
 
     QVector<Seat> seats_;
+    std::vector<Pad> pads_;
     int selected_ = 0;
     bool dragging_ = false;
     View view_ = View::Both;
+    QString view_file_ = QStringLiteral("slots/view.txt");
+    bool pads_up_ = false;
 
     QTimer frame_timer_;
+    QTimer pad_timer_;
     QElapsedTimer clock_;
 
     quint64 presented_ = 0;

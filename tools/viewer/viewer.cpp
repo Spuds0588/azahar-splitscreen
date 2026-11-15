@@ -1,6 +1,7 @@
 #include "viewer.h"
 
 #include <QCursor>
+#include <QFile>
 #include <QFontMetrics>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -90,9 +91,25 @@ Viewer::Viewer(QVector<Seat> seats, const QString& message, QWidget* parent)
     log(QStringLiteral("viewer: %1 seats, %2 with a restart marker")
             .arg(seats_.size())
             .arg(marked));
+
+    load_view();
+    init_pads();
 }
 
 Viewer::~Viewer() {
+    pad_timer_.stop();
+    for (auto& pad : pads_) {
+        if (pad.controller != nullptr) {
+            SDL_GameControllerClose(pad.controller);
+        }
+        if (pad.joystick != nullptr) {
+            SDL_JoystickClose(pad.joystick);
+        }
+    }
+    pads_.clear();
+    if (pads_up_) {
+        SDL_Quit();
+    }
     for (auto& seat : seats_) {
         if (seat.base != nullptr) {
             munmap(seat.base, static_cast<size_t>(seat.size));
@@ -552,51 +569,263 @@ QPoint Viewer::to_frame(int index, const QRect& image, const QPoint& pos) const 
     return {x, y};
 }
 
-void Viewer::set_view(View view) {
+void Viewer::set_view(View view, bool persist) {
     view_ = view;
     log(QStringLiteral("viewer: view %1")
             .arg(view_ == View::Top ? QStringLiteral("top screen only")
                                     : QStringLiteral("both screens")));
+    if (persist) {
+        save_view();
+    }
     update();
 }
 
+void Viewer::set_view_file(const QString& path) {
+    view_file_ = path;
+    load_view();
+    update();
+}
+
+/// The layout the last session ended in, so the couch never has to ask for it.
+/// A missing or unreadable file simply means "start stacked", as before.
+void Viewer::load_view() {
+    if (view_file_.isEmpty() || seats_.isEmpty()) {
+        return;
+    }
+    QFile file(view_file_);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return;
+    }
+    const QString saved = QString::fromUtf8(file.readLine(32)).trimmed();
+    if (saved == QLatin1String("top")) {
+        view_ = View::Top;
+    } else if (saved == QLatin1String("both")) {
+        view_ = View::Both;
+    } else {
+        return;
+    }
+    log(QStringLiteral("viewer: resuming %1 from %2")
+            .arg(view_ == View::Top ? QStringLiteral("the top screen")
+                                    : QStringLiteral("both screens"))
+            .arg(view_file_));
+}
+
+void Viewer::save_view() const {
+    if (view_file_.isEmpty() || seats_.isEmpty()) {
+        return; // a notice window has no session layout to remember
+    }
+    QFile file(view_file_);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        file.write(view_ == View::Top ? "top\n" : "both\n");
+    }
+}
+
 /// A held peek key belongs to its own seat, whichever seat has the keyboard.
-/// A release clears the peek in every layout, so switching layouts while a key
-/// is down cannot leave a tile stuck on the touch screen.
 bool Viewer::handle_peek(int key, bool press) {
     const int seats = static_cast<int>(seats_.size());
     for (int seat = 0; seat < seats && seat < 4; ++seat) {
         if (key != kPeekKeys[seat]) {
             continue;
         }
-        const bool was = seats_[seat].peek;
-        seats_[seat].peek = press && view_ == View::Top;
-        if (seats_[seat].peek != was) {
-            log(QStringLiteral("viewer: P%1 %2")
-                    .arg(seat + 1)
-                    .arg(press ? "peeking at the touch screen" : "back to the top screen"));
-        }
-        update();
+        set_peek(seat, press);
         return true;
     }
     return false;
 }
 
-void Viewer::toggle_view() {
-    for (auto& seat : seats_) {
-        seat.peek = false;
+void Viewer::set_peek(int seat, bool held) {
+    if (seat < 0 || seat >= seats_.size()) {
+        return;
     }
+    if (seats_[seat].peek == held) {
+        return;
+    }
+    seats_[seat].peek = held;
+    log(QStringLiteral("viewer: P%1 %2")
+            .arg(seat + 1)
+            .arg(held ? "peeking at the touch screen" : "back to the top screen"));
+    update();
+}
+
+void Viewer::toggle_view() {
     set_view(view_ == View::Both ? View::Top : View::Both);
 }
 
+// ---------------------------------------------------------------------------
+// Pads
+// ---------------------------------------------------------------------------
+
+/// Each pad owns the seat it was open for, so four people on four pads never
+/// need to touch the keyboard. A shoulder held on one pad is that seat's peek:
+/// the same `set_peek` the F5-F8 keys use, so both paths behave identically in
+/// either layout.
+void Viewer::init_pads() {
+    if (seats_.isEmpty()) {
+        return;
+    }
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    if (SDL_Init(SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) != 0) {
+        log(QStringLiteral("viewer: no pad input (%1)").arg(SDL_GetError()));
+        return;
+    }
+    pads_up_ = true;
+    const int attached = SDL_NumJoysticks();
+    for (int i = 0; i < attached; ++i) {
+        add_pad(i);
+    }
+    if (pads_.empty()) {
+        log(QStringLiteral("viewer: no pads attached, F5-F8 peek for seats 1-%1")
+                .arg(seats_.size()));
+    }
+    // The frame timer is the pace of this window, so polling pads twice per frame
+    // buys nothing a player can feel; half that rate keeps a held shoulder
+    // responsive while leaving the paint loop alone.
+    connect(&pad_timer_, &QTimer::timeout, this, [this] { poll_pads(); });
+    pad_timer_.start(16);
+}
+
+/// The lowest seat without a pad. Pads are numbered by the order they appear,
+/// which is how players find them: the first pad is P1, the second P2.
+static int free_seat(const std::vector<Pad>& pads, int seats) {
+    for (int seat = 0; seat < seats; ++seat) {
+        const bool taken = std::any_of(pads.begin(), pads.end(),
+                                       [seat](const Pad& pad) { return pad.seat == seat; });
+        if (!taken) {
+            return seat;
+        }
+    }
+    return -1;
+}
+
+void Viewer::add_pad(int device_index) {
+    // SDL queues an add event for every device already attached, so a pad opened
+    // at startup arrives here again. One handle per pad: otherwise the same pad
+    // would own a second seat and its shoulder would peek two tiles at once.
+    const SDL_JoystickID instance = SDL_JoystickGetDeviceInstanceID(device_index);
+    if (instance >= 0 &&
+        std::any_of(pads_.begin(), pads_.end(),
+                    [instance](const Pad& pad) { return pad.instance == instance; })) {
+        return;
+    }
+    const int seat = free_seat(pads_, static_cast<int>(seats_.size()));
+    if (seat < 0) {
+        return; // every seat already has a pad
+    }
+    Pad pad;
+    pad.seat = seat;
+    if (SDL_IsGameController(device_index)) {
+        pad.controller = SDL_GameControllerOpen(device_index);
+        if (pad.controller != nullptr) {
+            pad.joystick = SDL_GameControllerGetJoystick(pad.controller);
+        }
+    }
+    if (pad.joystick == nullptr) {
+        // SDL has no mapping for this pad; its shoulders are still buttons 4/5
+        // on every pad this project has met, so peek works anyway.
+        pad.joystick = SDL_JoystickOpen(device_index);
+    }
+    if (pad.joystick == nullptr) {
+        log(QStringLiteral("viewer: could not open pad %1 (%2)")
+                .arg(device_index)
+                .arg(SDL_GetError()));
+        return;
+    }
+    pad.instance = SDL_JoystickInstanceID(pad.joystick);
+    pad.name = QString::fromUtf8(SDL_JoystickNameForIndex(device_index));
+    log(QStringLiteral("viewer: pad %1 \"%2\" -> P%3")
+            .arg(device_index)
+            .arg(pad.name)
+            .arg(seat + 1));
+    pads_.push_back(pad);
+}
+
+/// Unplugging a pad mid-peek must not leave its tile on the touch screen, so
+/// the seat's peek is released with it.
+void Viewer::remove_pad(SDL_JoystickID instance) {
+    for (auto it = pads_.begin(); it != pads_.end(); ++it) {
+        if (it->instance != instance) {
+            continue;
+        }
+        set_peek(it->seat, false);
+        log(QStringLiteral("viewer: P%1 pad \"%2\" unplugged").arg(it->seat + 1).arg(it->name));
+        if (it->controller != nullptr) {
+            SDL_GameControllerClose(it->controller);
+        }
+        if (it->joystick != nullptr) {
+            SDL_JoystickClose(it->joystick);
+        }
+        pads_.erase(it);
+        return;
+    }
+}
+
+void Viewer::poll_pads() {
+    SDL_Event event;
+    while (SDL_PollEvent(&event) != 0) {
+        switch (event.type) {
+        case SDL_CONTROLLERDEVICEADDED:
+            add_pad(event.cdevice.which);
+            break;
+        case SDL_JOYDEVICEADDED:
+            if (!SDL_IsGameController(event.jdevice.which)) {
+                add_pad(event.jdevice.which);
+            }
+            break;
+        case SDL_CONTROLLERDEVICEREMOVED:
+        case SDL_JOYDEVICEREMOVED:
+            remove_pad(event.type == SDL_CONTROLLERDEVICEREMOVED ? event.cdevice.which
+                                                                 : event.jdevice.which);
+            break;
+        case SDL_CONTROLLERBUTTONDOWN:
+        case SDL_CONTROLLERBUTTONUP: {
+            const quint8 button = event.cbutton.button;
+            if (button != SDL_CONTROLLER_BUTTON_LEFTSHOULDER &&
+                button != SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
+                break;
+            }
+            for (const auto& pad : pads_) {
+                if (pad.seat >= 0 && pad.joystick != nullptr &&
+                    SDL_JoystickInstanceID(pad.joystick) == static_cast<int>(event.cbutton.which)) {
+                    set_peek(pad.seat, event.type == SDL_CONTROLLERBUTTONDOWN);
+                    break;
+                }
+            }
+            break;
+        }
+        case SDL_JOYBUTTONDOWN:
+        case SDL_JOYBUTTONUP:
+            // Shoulders are buttons 4 and 5 on the pads SDL cannot map.
+            if (event.jbutton.button != 4 && event.jbutton.button != 5) {
+                break;
+            }
+            for (const auto& pad : pads_) {
+                if (pad.controller == nullptr && pad.joystick != nullptr &&
+                    pad.instance == event.jbutton.which) {
+                    set_peek(pad.seat, event.type == SDL_JOYBUTTONDOWN);
+                    break;
+                }
+            }
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 /// Tab changes the layout, so it is taken here before Qt can route it as focus
-/// navigation; every other key goes on to the selected seat.
+/// navigation; every other key goes on to the selected seat. Losing the window
+/// drops every held peek: a key release that happens while another window has
+/// the keyboard is never delivered here, and a peek must not stick.
 bool Viewer::event(QEvent* event) {
     if (event->type() == QEvent::KeyPress) {
         auto* key = static_cast<QKeyEvent*>(event);
         if (key->key() == Qt::Key_Tab && !key->isAutoRepeat()) {
             toggle_view();
             return true;
+        }
+    } else if (event->type() == QEvent::WindowDeactivate) {
+        for (int seat = 0; seat < seats_.size(); ++seat) {
+            set_peek(seat, false);
         }
     }
     return QWidget::event(event);

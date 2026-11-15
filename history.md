@@ -1323,6 +1323,78 @@ One consequence worth stating: the whole `sdmc/Nintendo 3DS` tree is replaced, s
 titles' SD saves on that seat go too unless the set has them. That is the point of a set
 being the seat's save card, and it is why a clean set really resets.
 
+## 2026-11-14 (34) - Couch reach for the peek: pads and a remembered layout
+
+The view options of (33) worked, but only for whoever had the keyboard: F5-F8 and a
+`AZAHAR_VIEW` variable are not a couch feature. Two things changed.
+
+**Each pad owns a seat.** The viewer now opens every attached gamepad through SDL and
+binds it to the lowest seat without one - the first pad is P1, the second P2, the order
+players find them in - so a player reaches their *own* tile with their *own* shoulder
+button. Left and right shoulder both hold the peek; releasing returns to the top screen.
+Keys and pads share one `set_peek()` path, so the behaviour is identical in every layout
+and a peek cannot land on another seat. The held state is input truth: the tile shows the
+touch screen only while the layout is `Top`, so Tab mid-peek changes layout without
+inventing or dropping a peek, and there is no "cleared while still held" desync. An
+unplugged pad releases its own seat's peek (its `CONTROLLERDEVICEREMOVED` clears it), and
+losing window focus drops every held peek, since a release the window never sees would
+otherwise stick. F5-F8 still work for a seat without a pad.
+
+**The layout is remembered.** The viewer writes `slots/view.txt` (`top` or `both`) every
+time the layout changes and reads it at launch, so the session comes back the way the couch
+left it with no flags at all. `--view both|top` still overrides for one run and
+*deliberately does not persist*, so a one-off look cannot change what the next session does.
+
+**A live test caught a real defect.** SDL queues an add event for every already-attached
+device, so the four-player run registered the same pad twice: it logged `pad 0 -> P1` and
+`pad 0 -> P4`, and that pad's shoulder would have peeked two tiles at once - exactly the
+leak the requirement forbids. `add_pad` now ignores a device instance already open, and
+the rerun logs exactly three pads for four seats (P4 legitimately has none).
+
+Testing pads with no hands: the machine has a real `Microsoft X-Box 360 pad`, and nothing
+can press it from a script. `tools/qa/virtual_pads.c` therefore creates uinput gamepads
+with that pad's exact USB identity (bus 0003, vendor 045e, product 028e, version 0114), so
+SDL maps them through the same game controller entry it uses for the real one - the peek
+is reached as `leftshoulder`, not as a guessed button number. It needs root only to open
+`/dev/uinput`, chmods nothing but the event nodes it creates, and is driven through a FIFO
+(`0 ld`, `0 lu`, `0 remove`, `quit`). What that does **not** cover: a genuine unplug of
+physical hardware (removal is via `UI_DEV_DESTROY`), a pad whose SDL mapping has no
+shoulder (the joystick fallback path is untested on such a pad), and non-shoulder pad
+buttons - those are still not forwarded to the seats at all, which is unchanged from
+before this pass.
+
+| check | result |
+| --- | --- |
+| 4P MK7, no flags, previous layout `top` | logs `resuming the top screen from slots/view.txt`; all four tiles open top-only (`docs/evidence/view-persisted-layout.png`) |
+| two pads held at once | P2 and P3 both log a peek and both tiles show their touch screen; P1/P4 keep the action screen (`docs/evidence/view-multi-peek.png`) |
+| one release | `P2 back to the top screen`, P2's tile restores while P3 keeps peeking (`docs/evidence/view-peek-release.png`) |
+| peek held across both Tabs | `P2 peeking` -> `view both screens` -> `view top screen only` -> tile still shows P2's touch screen -> `P2 back to the top screen`; no clear-on-toggle desync (`docs/evidence/view-peek-across-layout.png`) |
+| pad unplugged mid-peek | `P3 back to the top screen` then `P3 pad "Xbox 360 Controller" unplugged`; P3's tile is back on the top screen |
+| F5 fallback | `P1 peeking at the touch screen` / `P1 back to the top screen` |
+| pads registered | exactly 3 `pad` lines for 4 seats after the duplicate fix |
+| layout persisted | session ended `both`, `slots/view.txt` = `both`; next 2P launch logs `resuming both screens` (`docs/evidence/view-2p-stacked.png`) and paints 59.8-62.1 fps |
+| teardown | `EXIT=0`, 0 processes, 0 rings after every run |
+
+One measurement note, because the fps number is the session's health check: this desktop got
+busier while the work ran (load 2-5 from unrelated applications - Chrome, Freebuff, a Vite
+dev server), and 2P runs swung between 37 and 62 fps with `paint_ms` swinging with them.
+Pads were not the variable: a run with the pads gone measured the same ~45, and a
+back-to-back A/B against the pre-pad build (b0f01effe) came out at 46-55 fps for the old
+binary and 42-50 for this one, overlapping within the same drift. The same committed code
+measured 59.8-62.1 fps in a quieter minute, which is the baseline, so the ceiling here
+follows the machine rather than this change. Polling was still halved to one tick per frame
+(16 ms): twice per frame bought nothing a player can feel.
+
+The 62.5 fps figure from (33) is therefore a quiet-machine number, not a floor on a loaded
+one. If a future pass needs it to hold under load, the lever is the paint path, not the
+input plumbing.
+
+Two smaller traps worth remembering. A standalone viewer started without
+`QT_QPA_PLATFORM=xcb` maps a Wayland surface that `xdotool` cannot see at all - the
+orchestrator sets xcb, so only hand-run viewers need it - and `xdotool key --window <id>`
+is dropped by Qt, so pad/key probes need real focus (`windowactivate`) rather than a
+targeted send.
+
 ## 2026-11-14 (33) - One screen per player, with a held peek at the touch screen
 
 Most 3DS games put the action on the top screen, so the stacked pair wastes half of every

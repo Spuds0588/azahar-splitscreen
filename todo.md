@@ -231,6 +231,15 @@ touch are playability polish and may slip to Milestone 4.
       to peek at their own touch screen (releases clear in every layout, and a click in
       top-only mode still taps the touch screen). Verified on 4P MK7: tile picture widths
       904 px vs 470 px, and F5/F6 flip only P1/P2. History (33).
+- [x] **Pad peek and a remembered layout** (2026-11-14): each pad owns a seat and holds
+      that seat's peek with either shoulder button, F5-F8 still work for a seat without a
+      pad, an unplug or a focus loss releases the peek, held peeks survive layout toggles
+      without desync, and `slots/view.txt` brings back the last used layout with no flags
+      (`--view` still overrides for one run without persisting). Verified in a live 4P
+      session with two seats peeking at once; the run also caught a pad being registered to
+      two seats, now fixed. History (34), captures in `docs/evidence/`.
+- [ ] **Pad buttons other than peek**: shoulders now hold a peek, but no pad button is
+      forwarded to a seat, so a couch still cannot actually play with a pad.
 - [ ] **Save-set integrity**: after importing a set, MK7 says "The save data is corrupted
       and will now be reset." even though the copied files are identical across slots.
       Chase the NAND save metadata that pairs with the SD save before trusting imports.

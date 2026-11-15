@@ -1,7 +1,7 @@
 //! Session lifecycle: one `azahar-room` plus one `azahar` per seat, each in
 //! its own process group so teardown leaves no orphans.
 
-use crate::{layout, slots};
+use crate::{layout, saves, slots};
 use std::fs::{self, File};
 use std::io;
 use std::net::UdpSocket;
@@ -209,7 +209,13 @@ pub fn list_roms() -> Vec<Rom> {
     roms
 }
 
-pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session, String> {
+pub fn start(
+    rom: &str,
+    players: u8,
+    width: i32,
+    height: i32,
+    saves_mode: &saves::Mode,
+) -> Result<Session, String> {
     let root = repo_root();
     let bin = azahar_bin(&root);
     let room_bin = root.join("build/bin/Release/azahar-room");
@@ -236,6 +242,11 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
     let _ = fs::write(&log_path, "");
     log(&log_path, &format!("rom: {}", rom_path.display()));
     log(&log_path, &format!("players: {players}, area: {width}x{height}"));
+
+    // Seed the seats before anything boots: a save set is read once, at load.
+    for line in saves::apply(&slots, saves_mode, saves::title_id(&rom_path))? {
+        log(&log_path, &line);
+    }
 
     let port = free_udp_port()?;
     log(&log_path, &format!("room: 127.0.0.1:{port}"));

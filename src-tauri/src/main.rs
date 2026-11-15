@@ -5,8 +5,10 @@
 mod controllers;
 mod layout;
 mod process;
+mod saves;
 mod slots;
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -34,6 +36,9 @@ fn start_session(
     state: tauri::State<AppState>,
     rom: String,
     players: u8,
+    save_mode: String,
+    save_grouped: String,
+    save_seats: Vec<String>,
 ) -> Result<String, String> {
     let mut guard = state.session.lock().map_err(|e| e.to_string())?;
     if let Some(mut running) = guard.take() {
@@ -43,7 +48,8 @@ fn start_session(
         }
     }
     let (width, height) = monitor_size(&app);
-    let session = process::start(&rom, players.clamp(2, 4), width, height)?;
+    let mode = mode_from_picker(&save_mode, &save_grouped, &save_seats)?;
+    let session = process::start(&rom, players.clamp(2, 4), width, height, &mode)?;
     let summary = session.summary.clone();
     *guard = Some(session);
     Ok(summary)
@@ -84,6 +90,38 @@ fn session_log(state: tauri::State<AppState>) -> String {
     }
 }
 
+/// The picker's saves choice: a directory for every seat, a directory per seat,
+/// or nothing (each slot keeps its own saves).
+/// Tauri hands the picker's `saveMode` through as this `save_mode` argument, so
+/// the page and the command have to keep the same name.
+fn mode_from_picker(mode: &str, grouped: &str, seats: &[String]) -> Result<saves::Mode, String> {
+    match mode {
+        "grouped" => {
+            let dir = grouped.trim();
+            if dir.is_empty() {
+                return Err("pick the save directory to copy into every player".to_string());
+            }
+            Ok(saves::Mode::Grouped(PathBuf::from(dir)))
+        }
+        "seats" => {
+            let seats: Vec<Option<PathBuf>> = (0..4)
+                .map(|seat| {
+                    seats
+                        .get(seat)
+                        .map(|path| path.trim())
+                        .filter(|path| !path.is_empty())
+                        .map(PathBuf::from)
+                })
+                .collect();
+            if seats.iter().all(Option::is_none) {
+                return Err("give at least one player a save directory".to_string());
+            }
+            Ok(saves::Mode::PerSeat(seats))
+        }
+        _ => Ok(saves::Mode::Keep),
+    }
+}
+
 fn monitor_size(app: &tauri::AppHandle) -> (i32, i32) {
     // The work area, not the monitor: a panel/taskbar would otherwise push the
     // bottom row up and make the tiles overlap.
@@ -120,14 +158,14 @@ extern "C" fn on_terminate(_: libc::c_int) {
     TERMINATE.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
-fn run_headless(rom: &str, players: u8) -> ! {
+fn run_headless(rom: &str, players: u8, saves_mode: saves::Mode) -> ! {
     // Ctrl-C has to take the room, the seats and the viewer with it, so the
     // signal only raises a flag: the session is dropped on the normal path.
     unsafe {
         libc::signal(libc::SIGINT, on_terminate as libc::sighandler_t);
         libc::signal(libc::SIGTERM, on_terminate as libc::sighandler_t);
     }
-    let mut session = match process::start(rom, players.clamp(2, 4), 1920, 1080) {
+    let mut session = match process::start(rom, players.clamp(2, 4), 1920, 1080, &saves_mode) {
         Ok(session) => session,
         Err(error) => {
             eprintln!("{error}");
@@ -159,12 +197,47 @@ fn run_headless(rom: &str, players: u8) -> ! {
     std::process::exit(0);
 }
 
+/// `--saves <dir>` seeds every seat from one save set; `--import <seat>=<dir>`
+/// brings a single player's existing saves into that seat only.
+fn cli_saves(args: &[String], players: u8) -> saves::Mode {
+    if let Some(dir) = args
+        .iter()
+        .position(|arg| arg == "--saves")
+        .and_then(|index| args.get(index + 1))
+    {
+        return saves::Mode::Grouped(PathBuf::from(dir));
+    }
+    let mut seats: Vec<Option<PathBuf>> = vec![None; usize::from(players.max(2))];
+    let mut any = false;
+    for (index, arg) in args.iter().enumerate() {
+        if arg != "--import" {
+            continue;
+        }
+        let Some((seat, path)) = args.get(index + 1).and_then(|spec| spec.split_once('=')) else {
+            continue;
+        };
+        let seat = seat.parse::<usize>().unwrap_or(0).wrapping_sub(1);
+        if let Some(slot) = seats.get_mut(seat) {
+            *slot = Some(PathBuf::from(path));
+            any = true;
+        }
+    }
+    if any {
+        saves::Mode::PerSeat(seats)
+    } else {
+        saves::Mode::Keep
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if let Some(position) = args.iter().position(|arg| arg == "--start") {
         let rom = args.get(position + 1).cloned().unwrap_or_default();
         if rom.is_empty() {
-            eprintln!("usage: azahar-splitscreen --start <rom> [--players 2-4]");
+            eprintln!(
+                "usage: azahar-splitscreen --start <rom> [--players 2-4] \
+                 [--saves <dir>] [--import <seat>=<dir>]"
+            );
             std::process::exit(1);
         }
         let players = args
@@ -173,7 +246,8 @@ fn main() {
             .and_then(|index| args.get(index + 1))
             .and_then(|value| value.parse().ok())
             .unwrap_or(2);
-        run_headless(&rom, players);
+        let saves_mode = cli_saves(&args, players);
+        run_headless(&rom, players, saves_mode);
     }
 
     let app = tauri::Builder::default()

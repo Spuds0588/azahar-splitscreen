@@ -1233,3 +1233,35 @@ compares the header with the mapping every frame and re-opens when it changed.
 Clean session afterwards: 63.0 fps, `EXIT=0`, 0 processes/rings/sockets, no `*.restart` left
 in `slots/`. Note when checking captures by hand: `xwd` can catch the window mid-repaint and
 clip a freshly drawn chip in half; the viewer's own `--dump` writes the composed frame.
+
+## 2026-11-14 (30) - Save sets: one for the group, or one player's imported
+
+Two things a couch needs before a session: everyone starting from the same unlocked
+profile, and one player bringing their own single-player progress to their own seat.
+Both are the same operation - copy a save set into a seat before it boots - so there is
+one module and two ways to choose the source.
+
+A save set is an Azahar user dir (a slot's `slots/pN/user`, or an existing single-player
+install). `saves::apply` copies two things: `sdmc/Nintendo 3DS` (SD save data and extra
+data) and `nand/data/<title id>` (cart/installed save data, the id read from the ROM's
+NCSD partition 0 NCCH header at 0x118). It deliberately does **not** copy `nand/private`
+(console identity) or the shared Mii extdata `nand/data/<system>/extdata/00048000/F000000B`,
+so each seat keeps its own identity and its own Mii name while playing someone else's
+progress. `Mode::Keep` is the default; `Grouped` seeds every seat; `PerSeat` seeds only the
+players named, and a missing path aborts the start before the room opens rather than
+booting the couch without the save they asked for.
+
+| check | result |
+| --- | --- |
+| grouped, four seats, sentinel file in the save set | four `save set from ... (12 files)` lines, the sentinel in p1-p4, 62.5 fps, `EXIT=0` |
+| per-seat import (`--import 3=...`), p3 wiped first | only `Player 3` seeded, sentinel only in p3, the other three clean, `EXIT=0` |
+| bad path (`--saves /tmp/nope`) | `save set for Player 1 not found: /tmp/nope`, the notice window shows it, `EXIT=1`, 0 processes left |
+| seat identity | p2's Mii database is byte-identical across a grouped copy and still holds `Player 2`, not `Player 1` |
+| MK7 boots from the copied set | four seats, 62.5 fps, rings advancing, clean teardown |
+
+Limits worth knowing: NAND extdata whose id is not the title id (some installed titles)
+is not covered - MK7 keeps its extra data on SD, which is the case tested. The copy assumes
+the same SD console-id directory as the source (all-zero in these slots); a real console id
+would need a mapping, which only matters once installed `.cia` saves are in scope.
+The picker gained `Saves` (keep / same for every player / per player, one path field each);
+it was compiled into the binary but not clicked through.

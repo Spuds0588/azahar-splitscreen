@@ -107,8 +107,14 @@ touch are playability polish and may slip to Milestone 4.
 
 - [ ] Confirm per-slot identity (console ID / friend code seed) is distinct;
       if not, provision per slot before first boot.
-- [ ] Save story: "clone a save set into every slot" (progress-unlocked games)
-      vs "independent saves". Ship clone-once, no UI beyond a checkbox.
+- [x] **Save sets** (2026-11-14): the picker's `Saves` row offers each player's own
+      saves (default), one save set copied into every seat (grouped, for unlocks), or a save
+      set per named seat (import one player's existing progress). `saves.rs` copies
+      `sdmc/Nintendo 3DS` plus `nand/data/<title id>` and leaves console identity and the
+      shared Mii database alone; `--saves <dir>` / `--import <seat>=<dir>` do the same from a
+      terminal. Verified with sentinel save sets: grouped seeds all four, per-seat seeds only
+      the named seat, a bad path exits 1 with a notice, and a seat's Mii stays its own.
+      History (30).
 - [ ] Shader cache warm-up: boot once, copy the cache into each slot.
 - [x] 4 players: measured at 1× — 60 FPS and 1.43 ms per seat, ~640–750 MB
       each, ~0.8 core total; 2×2 layout verified on 1080p (see `history.md`).

@@ -36,6 +36,18 @@
       button.primary:disabled, button:disabled { opacity: .45; cursor: default; }
       #status { padding: 0 20px 8px; font-size: 13px; color: #9fb0d0; }
       #pads { font-size: 12px; color: #8b93a7; padding: 0 20px 8px; }
+      section.saves { padding: 0 20px 12px; display: grid; gap: 10px; }
+      input[type="text"] {
+        width: 100%;
+        padding: 8px;
+        border-radius: 6px;
+        border: 1px solid #2c3240;
+        background: #1e222a;
+        color: inherit;
+        font-size: 13px;
+        box-sizing: border-box;
+      }
+      #seatRows { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
       pre {
         flex: 1;
         margin: 0 20px 20px;
@@ -70,6 +82,27 @@
       </div>
     </main>
 
+    <section class="saves">
+      <div>
+        <label for="saveMode">Saves</label>
+        <select id="saveMode">
+          <option value="keep" selected>Each player's own saves</option>
+          <option value="grouped">Same save for every player</option>
+          <option value="seats">Import a save for specific players</option>
+        </select>
+      </div>
+      <div id="groupedRow" hidden>
+        <label for="saveGrouped">Save set to copy (an Azahar user dir, or slots/pN)</label>
+        <input id="saveGrouped" type="text" placeholder="slots/p1/user" />
+      </div>
+      <div id="seatRows" hidden>
+        <input data-seat="0" type="text" placeholder="P1 save set (empty: own saves)" />
+        <input data-seat="1" type="text" placeholder="P2 save set (empty: own saves)" />
+        <input data-seat="2" type="text" placeholder="P3 save set (empty: own saves)" />
+        <input data-seat="3" type="text" placeholder="P4 save set (empty: own saves)" />
+      </div>
+    </section>
+
     <div class="actions">
       <button id="start" class="primary">Start</button>
       <button id="stop" disabled>Stop</button>
@@ -88,6 +121,18 @@
       const status = document.getElementById("status");
       const pads = document.getElementById("pads");
       const log = document.getElementById("log");
+      const saveMode = document.getElementById("saveMode");
+      const groupedRow = document.getElementById("groupedRow");
+      const seatRows = document.getElementById("seatRows");
+      const saveGrouped = document.getElementById("saveGrouped");
+
+      // Only the fields the chosen save mode needs.
+      function syncSaveRows() {
+        groupedRow.hidden = saveMode.value !== "grouped";
+        seatRows.hidden = saveMode.value !== "seats";
+      }
+      saveMode.addEventListener("change", syncSaveRows);
+      syncSaveRows();
 
       async function refreshRoms() {
         const roms = await invoke("list_roms");
@@ -131,7 +176,14 @@
         const players = Number(playerSelect.value);
         try {
           status.textContent = "Starting…";
-          const summary = await invoke("start_session", { rom, players });
+          const saveSeats = [...seatRows.querySelectorAll("input")].map((input) => input.value);
+          const summary = await invoke("start_session", {
+            rom,
+            players,
+            saveMode: saveMode.value,
+            saveGrouped: saveGrouped.value,
+            saveSeats,
+          });
           status.textContent = summary;
         } catch (error) {
           status.textContent = `Start failed: ${error}`;

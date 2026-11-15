@@ -79,6 +79,12 @@ Viewer::Viewer(QVector<Seat> seats, const QString& message, QWidget* parent)
     for (auto& seat : seats_) {
         open_ring(seat);
     }
+    const auto marked = std::count_if(seats_.begin(), seats_.end(), [](const Seat& seat) {
+        return !seat.restart_path.isEmpty();
+    });
+    log(QStringLiteral("viewer: %1 seats, %2 with a restart marker")
+            .arg(seats_.size())
+            .arg(marked));
 }
 
 Viewer::~Viewer() {
@@ -181,6 +187,15 @@ bool Viewer::ring_replaced(const Seat& seat) const {
     return now.st_dev != mapped.st_dev || now.st_ino != mapped.st_ino;
 }
 
+bool Viewer::ring_resized(const Seat& seat) const {
+    if (seat.base == nullptr) {
+        return false;
+    }
+    const auto* header = reinterpret_cast<const RingHeader*>(seat.base);
+    return header->width != seat.width || header->height != seat.height ||
+           header->stride != seat.stride || header->slot_count != seat.slot_count;
+}
+
 /// Copy the newest complete slot into `canvas`. The producer bumps `seq` with a
 /// release store only after the slot is fully written, so a torn frame is
 /// detected by re-reading the sequence after the copy.
@@ -259,7 +274,13 @@ void Viewer::paintEvent(QPaintEvent*) {
             log(QStringLiteral("viewer: ring %1 was replaced, re-attaching").arg(seat.ring_name));
             close_ring(seat);
             open_ring(seat);
+        } else if (ring_resized(seat)) {
+            // The seat switched from the boot screen to the real one: the header
+            // is the new size and the canvas has to follow it.
+            close_ring(seat);
+            open_ring(seat);
         }
+        refresh_restart(i);
         grab_frame(seat);
 
         const QRect tile = tile_rect(i);
@@ -268,6 +289,7 @@ void Viewer::paintEvent(QPaintEvent*) {
             painter.fillRect(tile, QColor(26, 13, 13));
             painter.setPen(QColor(180, 40, 40));
             painter.drawRect(tile.adjusted(0, 0, -1, -1));
+            draw_restart_chip(painter, i);
             continue;
         }
 
@@ -278,6 +300,7 @@ void Viewer::paintEvent(QPaintEvent*) {
         }
         painter.drawImage(image, seat.canvas);
         draw_badge(painter, i);
+        draw_restart_chip(painter, i);
     }
 
     ++presented_;
@@ -320,6 +343,55 @@ void Viewer::draw_badge(QPainter& painter, int index) const {
     painter.setBrush(QColor(18, 18, 24, 200));
     painter.drawRoundedRect(box, pad, pad);
     painter.setPen(QColor(242, 242, 242));
+    painter.drawText(box, Qt::AlignCenter, label);
+    painter.restore();
+}
+
+void Viewer::refresh_restart(int index) {
+    Seat& seat = seats_[index];
+    if (seat.restart_path.isEmpty()) {
+        return;
+    }
+    const QByteArray path = seat.restart_path.toUtf8();
+    // The orchestrator removes the marker when the seat publishes again, so the
+    // file's presence is the whole signal; no timer to guess at here.
+    const bool restarting = ::access(path.constData(), F_OK) == 0;
+    if (restarting != seat.restarting) {
+        const QRect tile = tile_rect(index);
+        log(QStringLiteral("viewer: %1 %2 (tile %3x%4)")
+                .arg(seat.ring_name,
+                     restarting ? QStringLiteral("restarting") : QStringLiteral("frames resumed"))
+                .arg(tile.width())
+                .arg(tile.height()));
+    }
+    seat.restarting = restarting;
+}
+
+/// A centred pill over the tile: the seat is coming back, not broken. It is the
+/// one thing drawn on top of the picture, and only while the tile is out.
+void Viewer::draw_restart_chip(QPainter& painter, int index) const {
+    if (!seats_[index].restarting) {
+        return;
+    }
+    const QRect tile = tile_rect(index);
+    const QString label = QStringLiteral("P%1 restarting…").arg(index + 1);
+
+    QFont font = painter.font();
+    font.setBold(true);
+    font.setPixelSize(std::max(14, tile.height() / 22));
+    const QFontMetrics metrics(font);
+    const int pad = std::max(8, font.pixelSize() / 2);
+    const QRect box(tile.x() + (tile.width() - (metrics.horizontalAdvance(label) + pad * 3)) / 2,
+                    tile.y() + (tile.height() - (metrics.height() + pad)) / 2,
+                    metrics.horizontalAdvance(label) + pad * 3, metrics.height() + pad);
+
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setFont(font);
+    painter.setPen(QPen(QColor(230, 180, 90, 150), 1));
+    painter.setBrush(QColor(20, 16, 10, 225));
+    painter.drawRoundedRect(box, pad, pad);
+    painter.setPen(QColor(245, 225, 190));
     painter.drawText(box, Qt::AlignCenter, label);
     painter.restore();
 }

@@ -64,6 +64,8 @@ impl Session {
             if seq > self.last_seq[seat] {
                 self.last_seq[seat] = seq;
                 self.last_move[seat] = Instant::now();
+                // Frames are flowing again: the tile can drop its restart chip.
+                let _ = fs::remove_file(restart_marker(&self.seat_logs[seat]));
             }
             if !dead &&
                 (self.spawned_at[seat].elapsed() < ARM ||
@@ -72,6 +74,9 @@ impl Session {
                 continue;
             }
             if self.restarts[seat] >= MAX_RESTARTS {
+                // Out of retries: the tile keeps its last frame rather than
+                // claiming a restart that will not happen.
+                let _ = fs::remove_file(restart_marker(&self.seat_logs[seat]));
                 continue;
             }
 
@@ -79,6 +84,9 @@ impl Session {
                 Some(status) => format!("exited ({status})"),
                 None => format!("no frames for {:.0}s", self.last_move[seat].elapsed().as_secs_f32()),
             };
+            // Tell the one window why the tile is about to go blank. The chip
+            // shows until this seat publishes its first frame again.
+            let _ = fs::write(restart_marker(&self.seat_logs[seat]), format!("{reason}\n"));
             terminate(&mut self.instances[seat]);
             // A killed seat leaves its ring behind, sometimes mid-resize; give
             // the replacement a clean object (the viewer re-attaches by inode).
@@ -127,6 +135,9 @@ impl Drop for Session {
             terminate(child);
         }
         terminate(&mut self.room);
+        for log in &self.seat_logs {
+            let _ = fs::remove_file(restart_marker(log));
+        }
         cleanup_artifacts(&self.rings, &self.sockets);
     }
 }
@@ -279,6 +290,8 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
     let mut seat_args = Vec::with_capacity(slots.len());
     for ((slot, ring), socket) in slots.iter().zip(&rings).zip(&sockets) {
         let instance_log = session_dir.join(format!("{}.log", slot.name));
+        // A marker left by a session that crashed says nothing about this one.
+        let _ = fs::remove_file(restart_marker(&instance_log));
         instance_logs.push(instance_log.clone());
         let args = vec![
             "--user".into(),
@@ -339,7 +352,7 @@ pub fn start(rom: &str, players: u8, width: i32, height: i32) -> Result<Session,
         return Err(message);
     }
 
-    let viewer = spawn_viewer(&root, &session_dir, &rings, &sockets);
+    let viewer = spawn_viewer(&root, &session_dir, &rings, &sockets, &instance_logs);
     match &viewer {
         Some(_) => log(&log_path, "viewer: one window compositing all seats"),
         None => log(
@@ -391,22 +404,25 @@ pub fn show_message(message: &str) -> Option<Child> {
     .ok()
 }
 
-/// The single window. Each seat contributes its frame ring and the socket its
-/// input goes to; the viewer never learns anything else about the session.
+/// The single window. Each seat contributes its frame ring, the socket its
+/// input goes to, and the marker file that says it is restarting.
 fn spawn_viewer(
     root: &Path,
     session_dir: &Path,
     rings: &[String],
     sockets: &[PathBuf],
+    seat_logs: &[PathBuf],
 ) -> Option<Child> {
     let viewer = root.join("tools/viewer/build/azahar-viewer");
     if !viewer.exists() || rings.is_empty() {
         return None;
     }
-    let mut args = Vec::with_capacity(rings.len() * 2);
-    for (ring, socket) in rings.iter().zip(sockets) {
+    let mut args = Vec::with_capacity(rings.len() * 4);
+    for ((ring, socket), seat_log) in rings.iter().zip(sockets).zip(seat_logs) {
         args.push("--seat".to_string());
         args.push(format!("{ring}:{}", socket.display()));
+        args.push("--restart".to_string());
+        args.push(format!("{ring}={}", restart_marker(seat_log).display()));
     }
     spawn(&viewer, &args, root, &session_dir.join("viewer.log")).ok()
 }
@@ -478,6 +494,12 @@ fn wait_for_room(room: &mut Child, log_path: &Path) -> Result<(), String> {
         sleep(Duration::from_millis(200));
     }
     Err("azahar-room did not report an open room within 10s".to_string())
+}
+
+/// Beside a seat's log: its presence means the orchestrator is restarting that
+/// seat, which is what the viewer's tile chip reports.
+fn restart_marker(seat_log: &Path) -> PathBuf {
+    seat_log.with_extension("restart")
 }
 
 /// The ring's publish counter, or 0 while the seat has not created the object

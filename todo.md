@@ -128,6 +128,10 @@ touch are playability polish and may slip to Milestone 4.
       so the rejoin is not `RoomIsFull`), and the viewer re-attaches when the object is
       replaced. Verified with SIGKILL and SIGSTOP on individual seats: one restart each,
       four live tiles afterwards, 62.5 fps, clean `EXIT=0`. History (28).
+- [x] **Restart notice** (2026-11-14): a restarting seat's tile shows `P2 restarting...` for
+      as long as the orchestrator's marker file is there, i.e. until that seat publishes a
+      frame again; the viewer also re-opens a ring whose header size changed, which a
+      just-booted seat does when its bottom screen comes up. History (29).
 - [x] **One window** — `tools/quadview` adopts the four seat windows (XEmbed,
       X11/XWayland), spawned and torn down by the orchestrator. Verified: one
       window, four 959x516 tiles, 59-60 fps, keyboard/touch follow the pointer.

@@ -11,6 +11,7 @@
 #include "viewer.h"
 
 #include <QApplication>
+#include <QHash>
 #include <QScreen>
 #include <QSurfaceFormat>
 
@@ -39,6 +40,8 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationName(QStringLiteral("azahar-viewer"));
 
     QVector<Seat> seats;
+    // `<ring>=<marker file>`, matched to the seats after all arguments are read.
+    QHash<QString, QString> restart_paths;
     QString message;
     QString title = QStringLiteral("Azahar Splitscreen");
     QString dump_path;
@@ -54,6 +57,12 @@ int main(int argc, char* argv[]) {
             seat.socket_path = colon > 0 ? spec.mid(colon + 1) : QString();
             if (!seat.ring_name.isEmpty()) {
                 seats.push_back(seat);
+            }
+        } else if (arg == QLatin1String("--restart") && i + 1 < argc) {
+            const QString spec = QString::fromLocal8Bit(argv[++i]);
+            const int eq = spec.indexOf(QLatin1Char('='));
+            if (eq > 0) {
+                restart_paths.insert(spec.left(eq), spec.mid(eq + 1));
             }
         } else if (arg == QLatin1String("--dump") && i + 2 < argc) {
             dump_path = QString::fromLocal8Bit(argv[++i]);
@@ -74,7 +83,9 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "usage: azahar-viewer [--windowed] --seat <ring[:socket]> …\n");
         return 1;
     }
-
+    for (auto& seat : seats) {
+        seat.restart_path = restart_paths.value(seat.ring_name);
+    }
     Viewer viewer(seats, message);
     viewer.setWindowTitle(title);
     if (!dump_path.isEmpty() && dump_frame > 0) {

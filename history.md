@@ -1204,3 +1204,32 @@ default (no `--players`) still gives 2 rings, 62.4 fps, `EXIT=0`, 0 leftovers, a
 `--message` notice path is untouched (no `watch()` without a session). Note for anyone
 testing by hand: a seat ignores plain SIGTERM, which is why the orchestrator's own teardown
 uses SIGKILL after it.
+
+## 2026-11-14 (29) - The tile says why it went black
+
+A restart left the tile showing a frozen frame or black for ~15 s with no explanation; on a
+TV that reads as a crash. The orchestrator now drops `slots/Player N.restart` beside the
+seat's log at the moment it restarts it (the file holds the reason), removes it as soon as
+that seat publishes another frame, removes it when the three-restart cap is reached so the
+tile never claims a restart that will not happen, and clears leftovers on teardown and at
+the next session's start. The viewer takes `--restart <ring>=<marker>` per seat and draws a
+`P2 restarting...` pill centred in that tile for as long as the marker exists - no timers
+and no guessing, the file's presence is the whole signal - and logs `restarting` /
+`frames resumed` so the transition is in `slots/viewer.log` too.
+
+The same pass found a second bug behind it: a seat that has just been restarted starts in
+the 3DS's single-screen 400x240 mode and switches to 400x480 once the bottom screen
+appears, but the viewer read the ring header once, so a re-attach during boot kept a
+400x240 canvas and the tile showed only the top screen from then on. `ring_resized`
+compares the header with the mapping every frame and re-opens when it changed.
+
+| check | result |
+| --- | --- |
+| SIGKILL seat 2, capture at +4 s | `P2 restarting...` over that tile, other three live; marker present |
+| same seat at +25 s | marker gone, `azsh-...-2 frames resumed` in `viewer.log`, tile live at full 400x480 |
+| SIGSTOP seat 3 | `P3 restarting...` appeared with the stall restart, then cleared |
+| in-session render (`--dump`) | pill crisp and centred over a live frame, `P1 restarting...` fully visible |
+
+Clean session afterwards: 63.0 fps, `EXIT=0`, 0 processes/rings/sockets, no `*.restart` left
+in `slots/`. Note when checking captures by hand: `xwd` can catch the window mid-repaint and
+clip a freshly drawn chip in half; the viewer's own `--dump` writes the composed frame.

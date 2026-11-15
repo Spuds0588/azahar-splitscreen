@@ -29,6 +29,10 @@ class QPainter;
 struct Seat {
     QString ring_name;
     QString socket_path;
+    /// Marker file the orchestrator creates while it restarts this seat; the
+    /// tile says so until the marker is gone.
+    QString restart_path;
+    bool restarting = false;
 
     // Frame ring, mapped read-only. Reopened until the producer sizes it.
     int fd = -1;
@@ -85,6 +89,10 @@ private:
     void close_ring(Seat& seat);
     /// True when `/dev/shm/<ring>` is no longer the object this window mapped.
     bool ring_replaced(const Seat& seat) const;
+    /// True when the producer resized the frame under us. A seat starts in the
+    /// 3DS's single-screen 400x240 mode and switches to 400x480 once the bottom
+    /// screen appears, so a seat opened during boot must be re-opened.
+    bool ring_resized(const Seat& seat) const;
     bool grab_frame(Seat& seat);
     /// Tile rectangle (in this widget's pixels) each seat is drawn into.
     QRect tile_rect(int index) const;
@@ -92,6 +100,11 @@ private:
     QRect image_rect(int index) const;
     /// "P1".."P4" in a small translucent tag, so a couch can tell the seats apart.
     void draw_badge(QPainter& painter, int index) const;
+    /// Re-read the seat's restart marker; true while the orchestrator restarts it.
+    void refresh_restart(int index);
+    /// "P2 restarting…" across a tile that is about to go blank, so the couch
+    /// knows it is a restart and not a crash.
+    void draw_restart_chip(QPainter& painter, int index) const;
     /// Window position -> frame coordinates (the space the seat's touch expects).
     QPoint to_frame(const Seat& seat, const QRect& image, const QPoint& pos) const;
     void send_input(int seat, quint8 type, quint32 key, quint16 x, quint16 y);

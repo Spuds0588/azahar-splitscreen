@@ -9,6 +9,7 @@
 #include <QPen>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include <fcntl.h>
@@ -55,6 +56,16 @@ static_assert(sizeof(InputMessage) == 12, "input message must stay 12 bytes");
 /// well outside the 3DS button keymap: a peek never shadows a game binding, and
 /// four players can peek without borrowing a letter key from each other.
 constexpr int kPeekKeys[] = {Qt::Key_F5, Qt::Key_F6, Qt::Key_F7, Qt::Key_F8};
+
+/// Right-stick touch pointer. The deadzone is the usual stick slack (about a
+/// fifth of travel), and the speed is in console pixels per second: 320 px/s
+/// crosses the 400 px touch screen in 1.25 s, fast enough to reach a menu entry
+/// and slow enough to land on one.
+constexpr float kStickDeadzone = 0.2f;
+constexpr float kTouchSpeed = 320.0f;
+/// Taps at the pointer. A face button, because both shoulders already hold a
+/// peek, and no pad button reaches the console yet, so nothing is shadowed.
+constexpr int kTapButton = SDL_CONTROLLER_BUTTON_A;
 
 void log(const QString& line) {
     QByteArray utf8 = line.toUtf8();
@@ -340,6 +351,9 @@ void Viewer::paintEvent(QPaintEvent*) {
             painter.fillRect(image.adjusted(-3, -3, 3, 3), QColor(242, 242, 242));
         }
         painter.drawImage(image, seat.canvas, source_rect(i));
+        if (i == selected_) {
+            draw_pointer(painter, i);
+        }
         draw_badge(painter, i);
         draw_restart_chip(painter, i);
     }
@@ -552,12 +566,23 @@ QRect Viewer::image_rect(int index) const {
 /// When only the top screen is shown, the picture is the pen surface for the
 /// touch screen: touch must not depend on what is visible, so a click maps onto
 /// the bottom half at the same relative spot.
+QRect Viewer::input_source(int index) const {
+    // While both screens are drawn the whole frame is the surface; in top-only
+    // the picture stands in for the touch screen, so a relative position on it
+    // is the same relative position on the bottom screen.
+    return view_ == View::Top ? touch_rect(seats_[index]) : source_rect(index);
+}
+
+QPoint Viewer::from_frame(int index, const QRect& image, QPointF frame) const {
+    const QRect source = input_source(index);
+    const float rx = static_cast<float>(frame.x() - source.x()) / std::max(source.width(), 1);
+    const float ry = static_cast<float>(frame.y() - source.y()) / std::max(source.height(), 1);
+    return {image.x() + static_cast<int>(rx * image.width()),
+            image.y() + static_cast<int>(ry * image.height())};
+}
+
 QPoint Viewer::to_frame(int index, const QRect& image, const QPoint& pos) const {
-    const Seat& seat = seats_[index];
-    QRect source = source_rect(index);
-    if (view_ == View::Top && !seat.peek) {
-        source = touch_rect(seat);
-    }
+    const QRect source = input_source(index);
     const float w = static_cast<float>(std::max(source.width(), 1));
     const float h = static_cast<float>(std::max(source.height(), 1));
     const int x = static_cast<int>(std::clamp(
@@ -567,6 +592,102 @@ QPoint Viewer::to_frame(int index, const QRect& image, const QPoint& pos) const 
         source.y() + (pos.y() - image.y()) * h / std::max(image.height(), 1), 0.0f,
         static_cast<float>(source.bottom())));
     return {x, y};
+}
+
+// ---------------------------------------------------------------------------
+// Right-stick touch pointer
+// ---------------------------------------------------------------------------
+
+void Viewer::ensure_pointer(int seat) {
+    if (seat < 0 || seat >= seats_.size() || seats_[seat].pointer_x >= 0) {
+        return;
+    }
+    const QRect bottom = touch_rect(seats_[seat]);
+    seats_[seat].pointer_x = bottom.x() + bottom.width() / 2.0f;
+    seats_[seat].pointer_y = bottom.y() + bottom.height() / 2.0f;
+}
+
+/// One stick step. The pointer is clamped to the touch screen and only this
+/// seat's socket is told about it, so a second seat never sees the motion.
+void Viewer::move_pointer(int seat, float dx, float dy) {
+    ensure_pointer(seat);
+    const QRect bottom = touch_rect(seats_[seat]);
+    Seat& target = seats_[seat];
+    target.pointer_x = std::clamp(target.pointer_x + dx, static_cast<float>(bottom.left()),
+                                  static_cast<float>(bottom.left() + bottom.width() - 1));
+    target.pointer_y = std::clamp(target.pointer_y + dy, static_cast<float>(bottom.top()),
+                                  static_cast<float>(bottom.top() + bottom.height() - 1));
+    const int x = static_cast<int>(target.pointer_x);
+    const int y = static_cast<int>(target.pointer_y);
+    if (x == target.sent_x && y == target.sent_y) {
+        return; // against an edge: the pointer cannot move further
+    }
+    target.sent_x = x;
+    target.sent_y = y;
+    send_input(seat, 4, 0, static_cast<quint16>(x), static_cast<quint16>(y));
+
+    const qint64 now = clock_.elapsed();
+    if (now - last_pointer_log_ms_ > 250) {
+        last_pointer_log_ms_ = now;
+        log(QStringLiteral("viewer: P%1 touch pointer (%2,%3)").arg(seat + 1).arg(x).arg(y));
+    }
+    update();
+}
+
+void Viewer::tap_pointer(int seat, bool down) {
+    if (seat < 0 || seat >= seats_.size()) {
+        return;
+    }
+    ensure_pointer(seat);
+    const int x = static_cast<int>(seats_[seat].pointer_x);
+    const int y = static_cast<int>(seats_[seat].pointer_y);
+    send_input(seat, down ? 3 : 5, 0, down ? static_cast<quint16>(x) : 0,
+               down ? static_cast<quint16>(y) : 0);
+    log(QStringLiteral("viewer: P%1 tap %2 (%3,%4)")
+            .arg(seat + 1)
+            .arg(down ? QStringLiteral("down") : QStringLiteral("up"))
+            .arg(x)
+            .arg(y));
+}
+
+/// Quadratic-feeling response: tiny deflections barely move, full deflection
+/// crosses the screen in about a second. Below the deadzone nothing happens, so
+/// a centred stick never drifts.
+void Viewer::apply_stick(float dt) {
+    const float magnitude = std::hypot(stick_x_, stick_y_);
+    if (magnitude <= kStickDeadzone || selected_ < 0 || selected_ >= seats_.size()) {
+        return;
+    }
+    const float speed = kTouchSpeed * (magnitude - kStickDeadzone) / (1.0f - kStickDeadzone);
+    move_pointer(selected_, stick_x_ / magnitude * speed * dt, stick_y_ / magnitude * speed * dt);
+}
+
+int Viewer::pad_seat(SDL_JoystickID instance) const {
+    for (const auto& pad : pads_) {
+        if (pad.instance == instance) {
+            return pad.seat;
+        }
+    }
+    return -1;
+}
+
+/// Drawn through the same mapping a click uses, so what is aimed at is what the
+/// tap hits. Only the selected tile shows one.
+void Viewer::draw_pointer(QPainter& painter, int index) {
+    const Seat& seat = seats_[index];
+    if (seat.pointer_x < 0) {
+        return;
+    }
+    const QPoint at = from_frame(index, image_rect(index), {seat.pointer_x, seat.pointer_y});
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QPen(QColor(0, 0, 0, 170), 3));
+    painter.drawEllipse(at, 8, 8);
+    painter.setPen(QPen(QColor(255, 255, 255, 230), 2));
+    painter.drawEllipse(at, 7, 7);
+    painter.drawLine(at.x() - 3, at.y(), at.x() + 3, at.y());
+    painter.drawLine(at.x(), at.y() - 3, at.x(), at.y() + 3);
+    painter.restore();
 }
 
 void Viewer::set_view(View view, bool persist) {
@@ -663,6 +784,7 @@ void Viewer::init_pads() {
     if (seats_.isEmpty()) {
         return;
     }
+    pad_clock_.start();
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     if (SDL_Init(SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) != 0) {
         log(QStringLiteral("viewer: no pad input (%1)").arg(SDL_GetError()));
@@ -747,6 +869,10 @@ void Viewer::remove_pad(SDL_JoystickID instance) {
             continue;
         }
         set_peek(it->seat, false);
+        if (it->seat == selected_) {
+            stick_x_ = 0; // a stick that vanished must not keep steering
+            stick_y_ = 0;
+        }
         log(QStringLiteral("viewer: P%1 pad \"%2\" unplugged").arg(it->seat + 1).arg(it->name));
         if (it->controller != nullptr) {
             SDL_GameControllerClose(it->controller);
@@ -776,19 +902,39 @@ void Viewer::poll_pads() {
             remove_pad(event.type == SDL_CONTROLLERDEVICEREMOVED ? event.cdevice.which
                                                                  : event.jdevice.which);
             break;
+        case SDL_CONTROLLERAXISMOTION: {
+            // Only the pad that owns the focused tile steers that tile's
+            // pointer, so two pads fighting over one cursor is impossible.
+            const int via = pad_seat(event.caxis.which);
+            if (via < 0 || via != selected_) {
+                break;
+            }
+            const float value = std::clamp(event.caxis.value / 32767.0f, -1.0f, 1.0f);
+            if (event.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTX) {
+                stick_x_ = value;
+            } else if (event.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTY) {
+                stick_y_ = value;
+            }
+            break;
+        }
         case SDL_CONTROLLERBUTTONDOWN:
         case SDL_CONTROLLERBUTTONUP: {
             const quint8 button = event.cbutton.button;
+            const int via = pad_seat(event.cbutton.which);
+            const bool pressed = event.type == SDL_CONTROLLERBUTTONDOWN;
+            if (via >= 0 && via == selected_ && button == kTapButton) {
+                if (pressed != tapping_) {
+                    tapping_ = pressed;
+                    tap_pointer(via, pressed);
+                }
+                break;
+            }
             if (button != SDL_CONTROLLER_BUTTON_LEFTSHOULDER &&
                 button != SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
                 break;
             }
-            for (const auto& pad : pads_) {
-                if (pad.seat >= 0 && pad.joystick != nullptr &&
-                    SDL_JoystickInstanceID(pad.joystick) == static_cast<int>(event.cbutton.which)) {
-                    set_peek(pad.seat, event.type == SDL_CONTROLLERBUTTONDOWN);
-                    break;
-                }
+            if (via >= 0) {
+                set_peek(via, pressed);
             }
             break;
         }
@@ -810,6 +956,11 @@ void Viewer::poll_pads() {
             break;
         }
     }
+
+    const qint64 now = pad_clock_.elapsed();
+    const float dt = std::clamp((now - last_pad_ms_) / 1000.0f, 0.0f, 0.1f);
+    last_pad_ms_ = now;
+    apply_stick(dt);
 }
 
 /// Tab changes the layout, so it is taken here before Qt can route it as focus
@@ -827,6 +978,14 @@ bool Viewer::event(QEvent* event) {
         for (int seat = 0; seat < seats_.size(); ++seat) {
             set_peek(seat, false);
         }
+        // A stick held while another window has focus would otherwise keep
+        // walking the pointer, and an un-ended tap would never release.
+        stick_x_ = 0;
+        stick_y_ = 0;
+        if (tapping_) {
+            tapping_ = false;
+            tap_pointer(selected_, false);
+        }
     }
     return QWidget::event(event);
 }
@@ -839,6 +998,10 @@ void Viewer::mousePressEvent(QMouseEvent* event) {
     for (int i = 0; i < seats_.size(); ++i) {
         if (!tile_rect(i).contains(pos)) {
             continue;
+        }
+        if (selected_ != i) {
+            stick_x_ = 0; // the previous seat's pad must not steer this one
+            stick_y_ = 0;
         }
         selected_ = i;
         update();

@@ -1,0 +1,28 @@
+# Right-stick touch, at the socket level (tools/qa/touch_probe.py)
+#
+# Viewer: 2 seats (P1/P2), --view top, fake rings, virtual pads 0->P1, 1->P2.
+# Each line is one 12-byte input datagram the viewer sent that seat.
+#
+# Phase 1: click P1's tile (selects it + sends mouse touch), then hold P1's pad
+# right stick 0.6 s, down 0.3 s, and tap A. Only p1's socket hears anything.
+   4.503 probe-p1.sock  type=3(touch-down) key=0 x=191 y=351
+   4.503 probe-p1.sock  type=5(touch-up) key=0 x=0 y=0
+   5.115 probe-p1.sock  type=4(touch-move) key=0 x=205 y=360
+   ... 44 touch-move datagrams, one per ~16 ms, x 200 -> 327
+   6.202 probe-p1.sock  type=4(touch-move) key=0 x=327 y=456
+   6.618 probe-p1.sock  type=3(touch-down) key=0 x=327 y=456
+   6.874 probe-p1.sock  type=5(touch-up) key=0 x=0 y=0
+   7.301 probe-p1.sock  type=3(touch-down) key=0 x=313 y=434
+# (the second pair is the mouse click at the pointer's spot, step 4 below)
+#
+# Phase 2: click P2's tile, hold P2's own pad left for 0.4 s, tap A. Only p2:
+   7.906 probe-p2.sock  type=3(touch-down) key=0 x=176 y=351
+   7.909 probe-p2.sock  type=5(touch-up) key=0 x=0 y=0
+   ... 25 touch-move datagrams, x 200 -> 71
+   8.907 probe-p2.sock  type=4(touch-move) key=0 x=71 y=360
+   9.114 probe-p2.sock  type=3(touch-down) key=0 x=71 y=360
+   9.371 probe-p2.sock  type=5(touch-up) key=0 x=0 y=0
+#
+# Phase 3: with P2 focused, P1's pad stick and A were driven. No datagram to
+# either socket followed: a pad can only steer the seat it owns, and only the
+# focused tile's seat receives touch. No cross-seat leakage.

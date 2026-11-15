@@ -77,9 +77,13 @@ Nothing goes in `src/core` that can live in the frontend.
       mapping does not depend on a second SDL stack in Rust.
 - [ ] Screen-swap hotkey (top/bottom) — one input binding plus a renderer
       swap; disabled while the touch cursor is active.
-- [ ] Right-stick virtual touch cursor — stick moves a pointer on the bottom
-      screen, a button clicks. Only if Phase 0 shows the touch path is needed
-      for MK7 menus.
+- [x] Right-stick virtual touch cursor (2026-11-14) — the focused seat's own pad
+      moves a touch pointer on its bottom screen (0.2 deadzone, 320 px/s, clamped to
+      the screen, stays where released) and **A** taps at it (`type 3`/`5`); only that
+      seat's socket is written to. Proven at the socket level with virtual pads and
+      `tools/qa/touch_probe.py`. History (35), captures in `docs/evidence/`.
+- [ ] Pad buttons for the console — A taps the touch screen, but no pad button reaches
+      a 3DS button, so a couch still cannot drive a game with a pad.
 - [ ] `--audio-focus <slot>` / null audio for non-focused instances, and
       `--vsync-master` so one instance drives presentation.
 

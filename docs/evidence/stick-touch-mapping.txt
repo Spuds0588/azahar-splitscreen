@@ -1,0 +1,9 @@
+# Stick pointer vs mouse click, same relative position (top-only layout)
+#
+# Two calibration clicks solve the window->console mapping (0.6 frame px per
+# window px on both axes), then the stick's tap position is mapped back to a
+# window point and clicked: the mouse lands on exactly the same console pixel.
+   4.435 probe-p1.sock  type=3(touch-down) key=0 x=120 y=315
+   4.992 probe-p1.sock  type=3(touch-down) key=0 x=270 y=435
+   6.348 probe-p1.sock  type=3(touch-down) key=0 x=363 y=360
+   7.122 probe-p1.sock  type=3(touch-down) key=0 x=363 y=360

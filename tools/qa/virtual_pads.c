@@ -13,6 +13,10 @@
 //   sudo ./virtual_pads /tmp/pads.ctl 2
 //   echo "0 ld" > /tmp/pads.ctl     # pad 0 left shoulder down
 //   echo "0 lu" > /tmp/pads.ctl     # pad 0 left shoulder up
+//   echo "0 rx -32768" > /tmp/pads.ctl   # right stick fully left (first byte is signed)
+//   echo "0 ry 32767" > /tmp/pads.ctl    # right stick fully down
+//   echo "0 ad" > /tmp/pads.ctl     # pad 0 A button down
+//   echo "0 au" > /tmp/pads.ctl     # pad 0 A button up
 //   echo "0 remove" > /tmp/pads.ctl # unplug pad 0
 //   echo quit > /tmp/pads.ctl       # tear the pads down
 //
@@ -96,6 +100,11 @@ static void emit_key(int fd, int code, int value) {
     emit(fd, EV_SYN, SYN_REPORT, 0);
 }
 
+static void emit_abs(int fd, int code, int value) {
+    emit(fd, EV_ABS, code, value);
+    emit(fd, EV_SYN, SYN_REPORT, 0);
+}
+
 static int make_pad(int index) {
     int event_before[128];
     int js_before[128];
@@ -116,11 +125,13 @@ static int make_pad(int index) {
         ioctl(fd, UI_SET_KEYBIT, buttons[i]);
     }
     ioctl(fd, UI_SET_EVBIT, EV_ABS);
+    // Sticks span the real pad's range so injected values need no rescaling;
+    // triggers and the hat keep theirs.
     struct {
         int code, min, max;
-    } axes[] = {{ABS_X, 0, 255},      {ABS_Y, 0, 255},      {ABS_RX, 0, 255},
-                {ABS_RY, 0, 255},     {ABS_Z, 0, 255},      {ABS_RZ, 0, 255},
-                {ABS_HAT0X, -1, 1},   {ABS_HAT0Y, -1, 1}};
+    } axes[] = {{ABS_X, -32768, 32767}, {ABS_Y, -32768, 32767}, {ABS_RX, -32768, 32767},
+                {ABS_RY, -32768, 32767}, {ABS_Z, 0, 255},       {ABS_RZ, 0, 255},
+                {ABS_HAT0X, -1, 1},      {ABS_HAT0Y, -1, 1}};
     for (size_t i = 0; i < sizeof axes / sizeof axes[0]; ++i) {
         ioctl(fd, UI_SET_ABSBIT, axes[i].code);
         struct uinput_abs_setup abs_setup;
@@ -197,8 +208,10 @@ int main(int argc, char* argv[]) {
         while ((newline = memchr(start, '\n', used - (size_t)(start - buffer))) != NULL) {
             *newline = '\0';
             int pad = 0;
+            int number = 0;
             char action[16] = {0};
-            if (sscanf(start, "%d %15s", &pad, action) == 2 && pad >= 0 && pad < MAX_PADS) {
+            if (sscanf(start, "%d %15s %d", &pad, action, &number) >= 2 && pad >= 0 &&
+                pad < MAX_PADS) {
                 if (live[pad] && fds[pad] >= 0) {
                     if (strcmp(action, "ld") == 0) {
                         emit_key(fds[pad], BTN_TL, 1);
@@ -208,6 +221,14 @@ int main(int argc, char* argv[]) {
                         emit_key(fds[pad], BTN_TR, 1);
                     } else if (strcmp(action, "ru") == 0) {
                         emit_key(fds[pad], BTN_TR, 0);
+                    } else if (strcmp(action, "rx") == 0) {
+                        emit_abs(fds[pad], ABS_RX, number);
+                    } else if (strcmp(action, "ry") == 0) {
+                        emit_abs(fds[pad], ABS_RY, number);
+                    } else if (strcmp(action, "ad") == 0) {
+                        emit_key(fds[pad], BTN_A, 1);
+                    } else if (strcmp(action, "au") == 0) {
+                        emit_key(fds[pad], BTN_A, 0);
                     } else if (strcmp(action, "remove") == 0) {
                         emit_key(fds[pad], BTN_TL, 0);
                         ioctl(fds[pad], UI_DEV_DESTROY);

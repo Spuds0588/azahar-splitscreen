@@ -61,6 +61,17 @@ struct Seat {
     /// shoulder). Input truth, independent of layout: the tile only shows the
     /// touch screen when the layout is `Top`.
     bool peek = false;
+
+    /// Where the right stick's touch pointer sits, in this seat's own frame
+    /// coordinates (always inside the bottom screen once it exists). Per seat,
+    /// so moving focus to another tile does not teleport a cursor, and -1 until
+    /// the player first touches the stick.
+    float pointer_x = -1;
+    float pointer_y = -1;
+    /// The last position sent as a touch move, so a stick held against the edge
+    /// of the screen does not repeat the same datagram sixty times a second.
+    int sent_x = -1;
+    int sent_y = -1;
 };
 
 /// One gamepad, bound to the seat its player sits at. The seat is fixed for as
@@ -137,6 +148,22 @@ private:
     QRect image_rect(int index) const;
     /// Swallow a peek key for the seat that owns it; true when it was one.
     bool handle_peek(int key, bool press);
+    /// The part of the frame input maps through: the whole frame while both
+    /// screens are shown, the bottom screen when only the top is drawn.
+    QRect input_source(int index) const;
+    /// Frame position -> window position, the inverse of `to_frame`, so the
+    /// pointer is drawn exactly where a click would land.
+    QPoint from_frame(int index, const QRect& image, QPointF frame) const;
+    /// Put a seat's pointer in the middle of its touch screen the first time it
+    /// is needed; it then stays where the player left it.
+    void ensure_pointer(int seat);
+    void move_pointer(int seat, float dx, float dy);
+    void tap_pointer(int seat, bool down);
+    /// One stick step for the focused seat at `dt` seconds.
+    void apply_stick(float dt);
+    /// The pad bound to this seat, or -1.
+    int pad_seat(SDL_JoystickID instance) const;
+    void draw_pointer(QPainter& painter, int index);
     /// The one place a peek is set, for keys and pads alike: they must behave
     /// identically, and a peek must never be able to land on another seat.
     void set_peek(int seat, bool held);
@@ -171,9 +198,17 @@ private:
     QString view_file_ = QStringLiteral("slots/view.txt");
     bool pads_up_ = false;
 
+    /// Right stick, -1..1, already filtered to the focused seat's own pad.
+    float stick_x_ = 0;
+    float stick_y_ = 0;
+    bool tapping_ = false;
+
     QTimer frame_timer_;
     QTimer pad_timer_;
     QElapsedTimer clock_;
+    QElapsedTimer pad_clock_;
+    qint64 last_pad_ms_ = 0;
+    qint64 last_pointer_log_ms_ = 0;
 
     quint64 presented_ = 0;
     quint64 paint_ns_ = 0;

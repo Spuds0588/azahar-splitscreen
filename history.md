@@ -1323,6 +1323,63 @@ One consequence worth stating: the whole `sdmc/Nintendo 3DS` tree is replaced, s
 titles' SD saves on that seat go too unless the set has them. That is the point of a set
 being the seat's save card, and it is why a clean set really resets.
 
+## 2026-11-14 (35) - Right stick as a touch pointer, per seat
+
+A 3DS menu needs a finger, and a pad player had no way to provide one: the viewer
+forwarded keys and mouse clicks only. The pad that owns the **focused tile** now
+drives a touch pointer on that seat's bottom screen.
+
+- SDL's `RIGHTX`/`RIGHTY` are polled with the pad events and integrated on a 16 ms
+tick, so speed does not depend on how often the axis reports. Deflection is
+normalised, a **0.2 deadzone** kills stick slack (a centred stick cannot drift),
+and speed scales from the deadzone edge up to **320 px/s** - 1.25 s to cross the
+400 px screen, fast enough to reach an entry, slow enough to stop on it.
+- The pointer lives in that seat's frame coordinates inside the bottom screen, is
+**clamped to the screen's last pixel** (verified: holding the stick pins it at
+399,479 and sends nothing more once it cannot move), and **stays where it was
+released** rather than recentring.
+- Releasing the stick therefore needs no datagram at all: a move is a `type 4`
+`TouchMoved`, which is what the seat already does while a mouse drag moves. Taps
+are `type 3`/`type 5` (`TouchPressed`/`TouchReleased`) at the pointer, exactly the
+mouse's pair.
+- **Tap button is A.** Both shoulders already hold a peek, and F5-F8 are keys, so A
+collides with nothing that exists; no pad button is forwarded to the console yet,
+so A is not shadowed for gameplay either.
+- Ownership is strict: only the pad bound to the focused seat steers, only the
+focused seat's socket is written to, and each seat keeps its own pointer, so
+moving focus never teleports a cursor. Two pads therefore cannot fight over one
+pointer, and no datagram can reach another seat.
+- The pointer is drawn as a small crosshair through the *same* mapping a click
+uses (`from_frame` is the exact inverse of the mouse's `to_frame`), so what a
+player aims at is what the tap hits. It is drawn on the focused tile only.
+
+Verified without hands on a controller, since none is attached on this box now
+(`/proc/bus/input/devices` lists no USB pad; the two entries are the virtual
+ones): `tools/qa/virtual_pads.c` (uinput pads with the real 360's USB id, now
+with stick and A commands) plus `tools/qa/touch_probe.py`, which binds the seat
+sockets and prints every datagram with its coordinates. Stub frame rings (a valid
+64-byte ring header and one slot) let the viewer open the tiles without emulators.
+
+| check | result |
+| --- | --- |
+| stick right 0.6 s, down 0.3 s, focused P1 | 44 `type=4` datagrams, `(200,360)` -> `(327,456)`, ~5 px per 16 ms tick = 320 px/s, P1's socket only (`docs/evidence/stick-touch-sockets.txt`) |
+| tap A | `type=3 (327,456)` then `type=5`, P1's socket only |
+| hold right 1.4 s, down 1.0 s | pointer pins at `(399,479)`, the bottom screen's last pixel, and stops sending repeats |
+| stick released | pointer stays at its last position; a later tap lands there |
+| focused P2, P2's own pad left | 25 `type=4`, `(200,360)` -> `(71,360)`, p2's socket only, then its tap |
+| focused P2, **P1's** pad stick + A | not one datagram on either socket - no cross-seat leakage |
+| mouse click at the pointer's spot (top-only) | two calibration clicks solve the window->console map (0.6 frame px per window px); the stick tapped at `(363,360)` and a mouse click at the mapped window point sent `(363,360)` - identical (`docs/evidence/stick-touch-mapping.txt`) |
+| live 4P MK7 session | pointer moved and tapped on P1 (`(358,424)`), P1+P2 shoulder peeks ran together, F5 peeked P1, a click on P3's tile still selected it, 64.6 fps |
+| teardown | `EXIT=0`, 0 processes, 0 rings |
+
+The crosshair is visible on the tile: `docs/evidence/stick-touch-pointer.png`.
+
+What this does **not** do: pad buttons still do not reach the console (A taps the
+touch screen and nothing else; a player still cannot drive a 3DS button with a
+pad), the pointer only follows the focused seat's own pad, and pads SDL cannot
+map still only peek (their axes are not read). Those are the next pad steps, not
+hidden gaps - `todo.md` carries them.
+
 ## 2026-11-14 (34) - Couch reach for the peek: pads and a remembered layout
 
 The view options of (33) worked, but only for whoever had the keyboard: F5-F8 and a

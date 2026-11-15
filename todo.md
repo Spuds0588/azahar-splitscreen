@@ -226,6 +226,15 @@ touch are playability polish and may slip to Milestone 4.
 
 ## 🟢 Milestone 4 — couch input UX
 
+- [x] **View modes** (2026-11-14): the window shows both screens (default) or only the top
+      screen, switched with Tab or `AZAHAR_VIEW=top` at launch, and each player holds F5-F8
+      to peek at their own touch screen (releases clear in every layout, and a click in
+      top-only mode still taps the touch screen). Verified on 4P MK7: tile picture widths
+      904 px vs 470 px, and F5/F6 flip only P1/P2. History (33).
+- [ ] **Save-set integrity**: after importing a set, MK7 says "The save data is corrupted
+      and will now be reset." even though the copied files are identical across slots.
+      Chase the NAND save metadata that pairs with the SD save before trusting imports.
+
 - [ ] Screen-swap hint on first launch per slot (one overlay, dismissible).
 - [ ] Pause/exit: one hotkey that stops the whole session, not four windows.
 - [ ] Controller disconnect/reconnect handling per seat.

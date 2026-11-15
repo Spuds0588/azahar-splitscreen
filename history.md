@@ -1322,3 +1322,44 @@ the picker's label now says the copy replaces that player's saves.
 One consequence worth stating: the whole `sdmc/Nintendo 3DS` tree is replaced, so other
 titles' SD saves on that seat go too unless the set has them. That is the point of a set
 being the seat's save card, and it is why a clean set really resets.
+
+## 2026-11-14 (33) - One screen per player, with a held peek at the touch screen
+
+Most 3DS games put the action on the top screen, so the stacked pair wastes half of every
+tile on a touch screen nobody is looking at. Following the sister project's flip layout
+(its v0.1.8 "per-player peek flip"), the viewer now has two layouts:
+
+- `View::Both` - today's stacked pair, the default, unchanged.
+- `View::Top` - only the top screen, filling the tile (a 400x240 picture is nearly twice
+  as wide as the 400x480 pair at the same height).
+
+Tab switches between them while the session runs (taken in `event()` before Qt can route
+Tab as focus navigation) and the orchestrator can open a session straight into it with
+`AZAHAR_VIEW=top`. Each player holds their own key to peek: **F5/F6/F7/F8 for P1-P4**.
+F-keys rather than the sister's RShift/RCtrl because Qt reports both Shift keys as the
+same `Qt::Key_Shift`, so per-player shift keys are not expressible on this side; F-keys are
+outside the 3DS button keymap either way, so a peek never shadows a game binding. A release
+clears the peek in *every* layout, so switching layouts with a key down cannot leave a tile
+stuck on the touch screen (the sister project's sticky-peek bug).
+
+Touch follows the sister project's rule that input must not depend on what is visible: in
+top-only mode a click maps onto the *bottom* half at the same relative spot, so menus stay
+operable while the player watches the action screen.
+
+| check | result |
+| --- | --- |
+| `--view top`, standalone | logs `view top screen only`; F5 gives `P1 peeking at the touch screen` / `P1 back to the top screen`; two Tabs give exactly two layout lines |
+| 4P MK7 session with `AZAHAR_VIEW=top` | each tile's picture measures ~904 px wide against ~470 px for the stacked layout, so the layout really changed |
+| F5 held | only P1 logs a peek and only P1's tile shows the touch screen; P2-P4 stay on the top screen (captured) |
+| F6 held | only P2 peeks; release logs `back to the top screen` |
+| teardown | `EXIT=0`, 0 processes, 0 rings |
+
+Two things this pass ran into. `xdotool key --window <id>` is ignored by Qt (synthetic
+sends are dropped), so driving peek keys needs `xdotool windowfocus <id>` and ordinary key
+events; and `xwd` can catch the window mid-repaint, so the layout check was done by
+measuring the picture width per tile rather than trusting a single capture. **Also found,
+not fixed:** after the save-set imports all four seats show MK7's own "The save data is
+corrupted and will now be reset." dialog, so the copied save set is not accepted by the
+game even though the files are byte-identical across slots. That is the save path, not the
+viewer, and it is the next thing to chase (candidates: the NAND save metadata/HMAC that
+pairs with the SD save, or a file the copy leaves behind).

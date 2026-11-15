@@ -43,6 +43,7 @@ int main(int argc, char* argv[]) {
     // `<ring>=<marker file>`, matched to the seats after all arguments are read.
     QHash<QString, QString> restart_paths;
     QString message;
+    QString view_mode;
     QString title = QStringLiteral("Azahar Splitscreen");
     QString dump_path;
     quint64 dump_frame = 0;
@@ -69,6 +70,8 @@ int main(int argc, char* argv[]) {
             dump_frame = QString::fromLocal8Bit(argv[++i]).toULongLong();
         } else if (arg == QLatin1String("--message") && i + 1 < argc) {
             message = QString::fromLocal8Bit(argv[++i]);
+        } else if (arg == QLatin1String("--view") && i + 1 < argc) {
+            view_mode = QString::fromLocal8Bit(argv[++i]);
         } else if (arg == QLatin1String("--windowed")) {
             windowed = true;
         } else if (arg == QLatin1String("--title") && i + 1 < argc) {
@@ -80,7 +83,8 @@ int main(int argc, char* argv[]) {
         }
     }
     if (seats.isEmpty() && message.isEmpty()) {
-        fprintf(stderr, "usage: azahar-viewer [--windowed] --seat <ring[:socket]> …\n");
+        fprintf(stderr,
+                "usage: azahar-viewer [--windowed] [--view both|top] --seat <ring[:socket]> …\n");
         return 1;
     }
     for (auto& seat : seats) {
@@ -88,6 +92,9 @@ int main(int argc, char* argv[]) {
     }
     Viewer viewer(seats, message);
     viewer.setWindowTitle(title);
+    if (view_mode == QLatin1String("top")) {
+        viewer.set_view(View::Top);
+    }
     if (!dump_path.isEmpty() && dump_frame > 0) {
         viewer.set_dump(dump_path, dump_frame);
     }

@@ -16,6 +16,7 @@
 #pragma once
 
 #include <QElapsedTimer>
+#include <QEvent>
 #include <QImage>
 #include <QTimer>
 #include <QVector>
@@ -24,6 +25,12 @@
 class QPainter;
 
 #include <vector>
+
+/// What each tile shows. `Both` is the stacked pair (top over touch screen);
+/// `Top` gives the game's action screen the whole tile, and a player's held peek
+/// key shows their touch screen instead, the way the sister project's flip
+/// layout works.
+enum class View { Both, Top };
 
 /// One seat: its frame ring plus the socket its input goes to.
 struct Seat {
@@ -48,6 +55,9 @@ struct Seat {
     bool missing_reported = false;
 
     QImage canvas; // newest frame, top-down BGRA (Format_ARGB32 on LE)
+
+    /// True while this seat's peek key is held (only meaningful in `View::Top`).
+    bool peek = false;
 };
 
 class Viewer : public QWidget {
@@ -74,6 +84,9 @@ public:
         return selected_;
     }
 
+    /// Initial layout; Tab switches it while the session runs.
+    void set_view(View view);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
 
@@ -96,8 +109,17 @@ private:
     bool grab_frame(Seat& seat);
     /// Tile rectangle (in this widget's pixels) each seat is drawn into.
     QRect tile_rect(int index) const;
+    /// The part of the seat's 400x480 frame this tile shows right now: the whole
+    /// frame in `Both`, the top or (while peeking) the bottom half in `Top`.
+    QRect source_rect(int index) const;
+    /// The half of the frame the touch screen occupies.
+    QRect touch_rect(const Seat& seat) const;
     /// The console frame inside that tile, keeping the source aspect ratio.
     QRect image_rect(int index) const;
+    /// Swallow a peek key for the seat that owns it; true when it was one.
+    bool handle_peek(int key, bool press);
+    void toggle_view();
+    bool event(QEvent* event) override;
     /// "P1".."P4" in a small translucent tag, so a couch can tell the seats apart.
     void draw_badge(QPainter& painter, int index) const;
     /// Re-read the seat's restart marker; true while the orchestrator restarts it.
@@ -106,7 +128,7 @@ private:
     /// knows it is a restart and not a crash.
     void draw_restart_chip(QPainter& painter, int index) const;
     /// Window position -> frame coordinates (the space the seat's touch expects).
-    QPoint to_frame(const Seat& seat, const QRect& image, const QPoint& pos) const;
+    QPoint to_frame(int index, const QRect& image, const QPoint& pos) const;
     void send_input(int seat, quint8 type, quint32 key, quint16 x, quint16 y);
     void log_stats();
     void dump_frame();
@@ -114,6 +136,7 @@ private:
     QVector<Seat> seats_;
     int selected_ = 0;
     bool dragging_ = false;
+    View view_ = View::Both;
 
     QTimer frame_timer_;
     QElapsedTimer clock_;

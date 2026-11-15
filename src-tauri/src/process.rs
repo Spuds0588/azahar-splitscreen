@@ -435,6 +435,13 @@ fn spawn_viewer(
         args.push("--restart".to_string());
         args.push(format!("{ring}={}", restart_marker(seat_log).display()));
     }
+    // The layout the window opens in; Tab switches it while the session runs.
+    if let Ok(view) = std::env::var("AZAHAR_VIEW") {
+        if !view.is_empty() {
+            args.push("--view".to_string());
+            args.push(view);
+        }
+    }
     spawn(&viewer, &args, root, &session_dir.join("viewer.log")).ok()
 }
 

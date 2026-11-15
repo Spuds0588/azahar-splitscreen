@@ -50,6 +50,11 @@ struct InputMessage {
 };
 static_assert(sizeof(InputMessage) == 12, "input message must stay 12 bytes");
 
+/// Each player's hold-to-peek key, in seat order. Function keys so they sit
+/// well outside the 3DS button keymap: a peek never shadows a game binding, and
+/// four players can peek without borrowing a letter key from each other.
+constexpr int kPeekKeys[] = {Qt::Key_F5, Qt::Key_F6, Qt::Key_F7, Qt::Key_F8};
+
 void log(const QString& line) {
     QByteArray utf8 = line.toUtf8();
     fprintf(stderr, "%s\n", utf8.constData());
@@ -229,6 +234,25 @@ bool Viewer::grab_frame(Seat& seat) {
 // Painting
 // ---------------------------------------------------------------------------
 
+/// The half of the 400x480 frame the touch screen occupies.
+QRect Viewer::touch_rect(const Seat& seat) const {
+    const int half = static_cast<int>(std::max(seat.height / 2, 1u));
+    return {0, static_cast<int>(seat.height) - half, static_cast<int>(seat.width), half};
+}
+
+/// What this tile draws right now. In `Both` the tile is the stacked pair, so a
+/// peek has nothing to reveal; in `Top` the peek key swaps the halves.
+QRect Viewer::source_rect(int index) const {
+    const Seat& seat = seats_[index];
+    const int width = static_cast<int>(seat.width);
+    const int height = static_cast<int>(std::max(seat.height, 1u));
+    if (view_ == View::Both) {
+        return {0, 0, width, height};
+    }
+    const QRect bottom = touch_rect(seat);
+    return seat.peek ? bottom : QRect(0, 0, width, height - bottom.height());
+}
+
 QRect Viewer::tile_rect(int index) const {
     const int count = static_cast<int>(seats_.size());
     if (count <= 0) {
@@ -298,7 +322,7 @@ void Viewer::paintEvent(QPaintEvent*) {
         if (i == selected_) {
             painter.fillRect(image.adjusted(-3, -3, 3, 3), QColor(242, 242, 242));
         }
-        painter.drawImage(image, seat.canvas);
+        painter.drawImage(image, seat.canvas, source_rect(i));
         draw_badge(painter, i);
         draw_restart_chip(painter, i);
     }
@@ -472,11 +496,17 @@ void Viewer::keyPressEvent(QKeyEvent* event) {
         close();
         return;
     }
+    if (handle_peek(event->key(), true)) {
+        return;
+    }
     send_input(selected_, 1, static_cast<quint32>(event->key()), 0, 0);
 }
 
 void Viewer::keyReleaseEvent(QKeyEvent* event) {
     if (event->isAutoRepeat()) {
+        return;
+    }
+    if (handle_peek(event->key(), false)) {
         return;
     }
     send_input(selected_, 2, static_cast<quint32>(event->key()), 0, 0);
@@ -486,9 +516,9 @@ void Viewer::keyReleaseEvent(QKeyEvent* event) {
 /// aspect ratio and is centred.
 QRect Viewer::image_rect(int index) const {
     const QRect tile = tile_rect(index);
-    const Seat& seat = seats_[index];
+    const QRect source = source_rect(index);
     const float source_aspect =
-        static_cast<float>(seat.width) / static_cast<float>(std::max(seat.height, 1u));
+        static_cast<float>(source.width()) / static_cast<float>(std::max(source.height(), 1));
     QRect image = tile;
     if (tile.width() * 1.0 / tile.height() > source_aspect) {
         image.setWidth(static_cast<int>(tile.height() * source_aspect));
@@ -502,14 +532,74 @@ QRect Viewer::image_rect(int index) const {
 
 /// Window position -> the seat's own frame coordinates, which is the space its
 /// touch handling expects (the seat maps those through its screen layout).
-QPoint Viewer::to_frame(const Seat& seat, const QRect& image, const QPoint& pos) const {
-    const float w = static_cast<float>(std::max(seat.width, 1u));
-    const float h = static_cast<float>(std::max(seat.height, 1u));
+/// When only the top screen is shown, the picture is the pen surface for the
+/// touch screen: touch must not depend on what is visible, so a click maps onto
+/// the bottom half at the same relative spot.
+QPoint Viewer::to_frame(int index, const QRect& image, const QPoint& pos) const {
+    const Seat& seat = seats_[index];
+    QRect source = source_rect(index);
+    if (view_ == View::Top && !seat.peek) {
+        source = touch_rect(seat);
+    }
+    const float w = static_cast<float>(std::max(source.width(), 1));
+    const float h = static_cast<float>(std::max(source.height(), 1));
     const int x = static_cast<int>(std::clamp(
-        (pos.x() - image.x()) * w / std::max(image.width(), 1), 0.0f, w - 1));
+        source.x() + (pos.x() - image.x()) * w / std::max(image.width(), 1), 0.0f,
+        static_cast<float>(source.right())));
     const int y = static_cast<int>(std::clamp(
-        (pos.y() - image.y()) * h / std::max(image.height(), 1), 0.0f, h - 1));
+        source.y() + (pos.y() - image.y()) * h / std::max(image.height(), 1), 0.0f,
+        static_cast<float>(source.bottom())));
     return {x, y};
+}
+
+void Viewer::set_view(View view) {
+    view_ = view;
+    log(QStringLiteral("viewer: view %1")
+            .arg(view_ == View::Top ? QStringLiteral("top screen only")
+                                    : QStringLiteral("both screens")));
+    update();
+}
+
+/// A held peek key belongs to its own seat, whichever seat has the keyboard.
+/// A release clears the peek in every layout, so switching layouts while a key
+/// is down cannot leave a tile stuck on the touch screen.
+bool Viewer::handle_peek(int key, bool press) {
+    const int seats = static_cast<int>(seats_.size());
+    for (int seat = 0; seat < seats && seat < 4; ++seat) {
+        if (key != kPeekKeys[seat]) {
+            continue;
+        }
+        const bool was = seats_[seat].peek;
+        seats_[seat].peek = press && view_ == View::Top;
+        if (seats_[seat].peek != was) {
+            log(QStringLiteral("viewer: P%1 %2")
+                    .arg(seat + 1)
+                    .arg(press ? "peeking at the touch screen" : "back to the top screen"));
+        }
+        update();
+        return true;
+    }
+    return false;
+}
+
+void Viewer::toggle_view() {
+    for (auto& seat : seats_) {
+        seat.peek = false;
+    }
+    set_view(view_ == View::Both ? View::Top : View::Both);
+}
+
+/// Tab changes the layout, so it is taken here before Qt can route it as focus
+/// navigation; every other key goes on to the selected seat.
+bool Viewer::event(QEvent* event) {
+    if (event->type() == QEvent::KeyPress) {
+        auto* key = static_cast<QKeyEvent*>(event);
+        if (key->key() == Qt::Key_Tab && !key->isAutoRepeat()) {
+            toggle_view();
+            return true;
+        }
+    }
+    return QWidget::event(event);
 }
 
 void Viewer::mousePressEvent(QMouseEvent* event) {
@@ -526,7 +616,7 @@ void Viewer::mousePressEvent(QMouseEvent* event) {
         const Seat& seat = seats_[i];
         const QRect image = image_rect(i);
         if (seat.fd >= 0 && image.contains(pos)) {
-            const QPoint frame = to_frame(seat, image, pos);
+            const QPoint frame = to_frame(i, image, pos);
             dragging_ = true;
             send_input(i, 3, 0, static_cast<quint16>(frame.x()),
                        static_cast<quint16>(frame.y()));
@@ -539,8 +629,7 @@ void Viewer::mouseMoveEvent(QMouseEvent* event) {
     if (!dragging_) {
         return;
     }
-    const Seat& seat = seats_[selected_];
-    const QPoint frame = to_frame(seat, image_rect(selected_), event->pos());
+    const QPoint frame = to_frame(selected_, image_rect(selected_), event->pos());
     send_input(selected_, 4, 0, static_cast<quint16>(frame.x()),
                static_cast<quint16>(frame.y()));
 }

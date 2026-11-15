@@ -1,0 +1,33 @@
+# Pad gameplay input, at the socket level (tools/qa/touch_probe.py)
+#
+# Viewer: 2 seats (P1/P2); virtual pads 0->P1, 1->P2. Each line is one datagram
+# the viewer sent. key= is the Qt key the seat's [Controls] profile binds:
+# A=65 B=83 X=90 Y=88 L=81 R=87 ZL=49 ZR=50, d-pad U/D/L/R=84/71/70/72,
+# circle-pad arrows 16777235/37/34/36.
+#
+# P2's pad A, pressed while P1's tile is the focused one -> P2's console only:
+   3.993 probe-p2.sock  type=1(key-down) key=65 x=0 y=0
+   4.248 probe-p2.sock  type=2(key-up) key=65 x=0 y=0
+#
+# P1's pad: R shoulder (87), L stick-click (81), left trigger ZL (49),
+# d-pad left (70):
+   4.504 probe-p1.sock  type=1(key-down) key=87 x=0 y=0
+   4.744 probe-p1.sock  type=2(key-up) key=87 x=0 y=0
+   5.001 probe-p1.sock  type=1(key-down) key=81 x=0 y=0
+   5.257 probe-p1.sock  type=2(key-up) key=81 x=0 y=0
+   5.497 probe-p1.sock  type=1(key-down) key=49 x=0 y=0
+   5.752 probe-p1.sock  type=2(key-up) key=49 x=0 y=0
+   6.009 probe-p1.sock  type=1(key-down) key=70 x=0 y=0
+   6.265 probe-p1.sock  type=2(key-up) key=70 x=0 y=0
+#
+# P1's pad: left stick left -> circle pad (16777234), then R3 tapping the touch
+# pointer that P1 owns:
+   6.505 probe-p1.sock  type=1(key-down) key=16777234 x=0 y=0
+   6.760 probe-p1.sock  type=2(key-up) key=16777234 x=0 y=0
+   7.016 probe-p1.sock  type=3(touch-down) key=0 x=200 y=360
+   7.257 probe-p1.sock  type=5(touch-up) key=0 x=0 y=0
+#
+# Unplugging mid-press releases what the pad still held (A=65 up with no release
+# command sent):
+   8.024 probe-p1.sock  type=1(key-down) key=65 x=0 y=0
+   8.264 probe-p1.sock  type=2(key-up) key=65 x=0 y=0

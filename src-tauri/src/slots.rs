@@ -22,7 +22,22 @@ pub fn prepare(root: &Path, players: u8) -> io::Result<Vec<Slot>> {
         // Default layout (top screen above the touch screen). LargeScreen is
         // smaller on a TV but makes Monster Hunter Stories abort with a system
         // error dialog; the instance must also keep running unfocused.
-        let config = "[Layout]\nlayout_option=0\n\n[UI]\npause_when_in_background=false\n";
+        //
+        // Audio: only the first seat opens a sound device. The other seats get the
+        // null sink and zero volume, so three of four instances do not mix and
+        // push samples nobody hears. `output_type` is an enum setting, which Qt
+        // only round-trips as the escaped QVariant it writes itself - `\x84` is
+        // the type tag for the value Azahar stores, and the last byte holds
+        // SinkType::Null (1). A plain `output_type=1` would be read as a string
+        // and fall back to Auto, which is the device-sharing this avoids.
+        let audio = if seat == 0 {
+            "[Audio]\nvolume=1\n"
+        } else {
+            "[Audio]\nvolume=0\noutput_type=@Variant(\\0\\0\\0\\x84\\0\\0\\0\\0\\0\\0\\0\\1)\n"
+        };
+        let config = format!(
+            "[Layout]\nlayout_option=0\n\n[UI]\npause_when_in_background=false\n\n{audio}"
+        );
         fs::write(user_dir.join("config").join("qt-config.ini"), config)?;
 
         seed_mii(&user_dir, seat)?;

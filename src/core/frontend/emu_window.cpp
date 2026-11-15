@@ -14,6 +14,9 @@
 namespace Frontend {
 /// We need a global touch state that is shared across the different window instances
 static std::weak_ptr<EmuWindow::TouchState> global_touch_state;
+/// Same for buttons: a one-window process (a seat) names "engine:keyboard" in its
+/// profile, so the first window also answers to that name.
+static std::weak_ptr<void> global_key_state;
 
 GraphicsContext::~GraphicsContext() = default;
 
@@ -190,6 +193,12 @@ void EmuWindow::CreateTouchState() {
     key_state = std::make_shared<KeyState>();
     key_device_name = "keyboard_" + std::to_string(reinterpret_cast<std::uintptr_t>(this));
     Input::RegisterFactory<Input::ButtonDevice>(key_device_name, key_state);
+    // A seat process has one window and a profile that names "engine:keyboard", so
+    // without this the forwarded keys below would press into a state no device reads.
+    if (!global_key_state.lock()) {
+        Input::RegisterFactory<Input::ButtonDevice>("keyboard", key_state);
+        global_key_state = key_state;
+    }
 }
 
 bool EmuWindow::TouchPressed(unsigned framebuffer_x, unsigned framebuffer_y) {

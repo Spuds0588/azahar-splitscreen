@@ -242,8 +242,24 @@ touch are playability polish and may slip to Milestone 4.
       (`--view` still overrides for one run without persisting). Verified in a live 4P
       session with two seats peeking at once; the run also caught a pad being registered to
       two seats, now fixed. History (34), captures in `docs/evidence/`.
-- [ ] **Pad buttons other than peek**: shoulders now hold a peek, but no pad button is
-      forwarded to a seat, so a couch still cannot actually play with a pad.
+- [x] **Pad buttons other than peek** (2026-11-15): every pad button, both sticks, both
+      triggers and the d-pad now drive the console that owns the pad, forwarded as the keys
+      the seat profile already binds (A/B/X/Y, R on the right shoulder, L on left stick
+      click, ZL/ZR on the triggers, peek on the left shoulder, tap on R3). This pass also
+      found and fixed why forwarded keys never reached a game: a seat process binds
+      `engine:keyboard`, and the window's key state was registered under a name the profile
+      never used. Verified in the guest (`tools/touchprobe`: P1 `keys=5`, P2 `keys=0`) and at
+      the socket level. History (36), evidence in `docs/evidence/`.
+- [x] **Audio: player 1 only** (2026-11-15): seat 1 keeps the default output, seats 2-4 are
+      muted onto the null sink (`@Variant` escaped ulong, because `output_type` is read as
+      `u32`), so a 4-player session opens exactly one audio stream. History (36).
+- [ ] **Per-seat audio split** (next audio step): player 1's music with everyone's sound
+      effects. A null sink is per console and all-or-nothing, so this needs core work: split
+      the HLE audio stream into music and effects (or mix the muted seats' effects into
+      seat 1's output) before it reaches the backend.
+- [ ] **Analog sticks**: both sticks currently emit arrow keys through
+      `analog_from_button`, so the circle pad is full deflection in eight directions. A
+      percent-scaled axis needs either an analog spec per seat or a forwarded analog event.
 - [ ] **Save-set integrity**: after importing a set, MK7 says "The save data is corrupted
       and will now be reset." even though the copied files are identical across slots.
       Chase the NAND save metadata that pairs with the SD save before trusting imports.

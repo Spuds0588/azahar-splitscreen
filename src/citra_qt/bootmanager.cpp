@@ -577,11 +577,13 @@ void GRenderWindow::closeEvent(QCloseEvent* event) {
 }
 
 void GRenderWindow::keyPressEvent(QKeyEvent* event) {
-    InputCommon::GetKeyboard()->PressKey(event->key());
+    // The window's own keys and the viewer's forwarded ones must land in the same
+    // state: this window's, since a seat's profile binds "engine:keyboard" to it.
+    PressForwardedKey(event->key());
 }
 
 void GRenderWindow::keyReleaseEvent(QKeyEvent* event) {
-    InputCommon::GetKeyboard()->ReleaseKey(event->key());
+    ReleaseForwardedKey(event->key());
 }
 
 void GRenderWindow::mousePressEvent(QMouseEvent* event) {

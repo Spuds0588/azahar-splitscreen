@@ -82,6 +82,15 @@ struct Pad {
     SDL_JoystickID instance = -1;
     int seat = -1;
     QString name;
+    /// Bit i is set while kPadKeys[i] is held, so a stick (which reports every
+    /// frame) only sends the key changes; the same mask lets an unplugged pad
+    /// release everything it was holding instead of leaving a button stuck.
+    quint32 buttons = 0;
+    /// Circle-pad directions from the left stick: bit order up, down, left, right.
+    quint32 dirs = 0;
+    bool triggers[2] = {false, false};
+    float left_x = 0;
+    float left_y = 0;
 };
 
 class Viewer : public QWidget {
@@ -163,6 +172,16 @@ private:
     void apply_stick(float dt);
     /// The pad bound to this seat, or -1.
     int pad_seat(SDL_JoystickID instance) const;
+    /// The pad's index in `pads_`, or -1.
+    int pad_index(SDL_JoystickID instance) const;
+    /// Send a 3DS button press/release to the seat the pad belongs to: a pad
+    /// plays its own console, whichever tile has the keyboard focus.
+    void pad_button(Pad& pad, int sdl_button, bool down);
+    /// Left stick -> circle pad, as the arrow keys the seat profile maps onto the
+    /// analog. Only the directions that changed are sent.
+    void pad_stick(Pad& pad, float x, float y);
+    /// Release everything a pad was holding, so nothing stays pressed.
+    void release_pad(Pad& pad);
     void draw_pointer(QPainter& painter, int index);
     /// The one place a peek is set, for keys and pads alike: they must behave
     /// identically, and a peek must never be able to land on another seat.

@@ -105,6 +105,25 @@ static void emit_abs(int fd, int code, int value) {
     emit(fd, EV_SYN, SYN_REPORT, 0);
 }
 
+/// Button names as the pad reports them, so a test can press a real button
+/// rather than guess a number: `0 tr 1` is right shoulder down.
+static const struct {
+    const char* name;
+    int code;
+} kButtons[] = {{"a", BTN_A},         {"b", BTN_B},        {"x", BTN_X},
+                 {"y", BTN_Y},         {"tl", BTN_TL},      {"tr", BTN_TR},
+                 {"select", BTN_SELECT}, {"start", BTN_START}, {"mode", BTN_MODE},
+                 {"thumbl", BTN_THUMBL}, {"thumbr", BTN_THUMBR}};
+
+static int button_code(const char* name) {
+    for (size_t i = 0; i < sizeof kButtons / sizeof kButtons[0]; ++i) {
+        if (strcmp(kButtons[i].name, name) == 0) {
+            return kButtons[i].code;
+        }
+    }
+    return -1;
+}
+
 static int make_pad(int index) {
     int event_before[128];
     int js_before[128];
@@ -213,6 +232,12 @@ int main(int argc, char* argv[]) {
             if (sscanf(start, "%d %15s %d", &pad, action, &number) >= 2 && pad >= 0 &&
                 pad < MAX_PADS) {
                 if (live[pad] && fds[pad] >= 0) {
+                    const int named = button_code(action);
+                    if (named >= 0) {
+                        emit_key(fds[pad], named, number != 0);
+                        start = newline + 1;
+                        continue;
+                    }
                     if (strcmp(action, "ld") == 0) {
                         emit_key(fds[pad], BTN_TL, 1);
                     } else if (strcmp(action, "lu") == 0) {
@@ -225,6 +250,18 @@ int main(int argc, char* argv[]) {
                         emit_abs(fds[pad], ABS_RX, number);
                     } else if (strcmp(action, "ry") == 0) {
                         emit_abs(fds[pad], ABS_RY, number);
+                    } else if (strcmp(action, "lx") == 0) {
+                        emit_abs(fds[pad], ABS_X, number);
+                    } else if (strcmp(action, "ly") == 0) {
+                        emit_abs(fds[pad], ABS_Y, number);
+                    } else if (strcmp(action, "zl") == 0) {
+                        emit_abs(fds[pad], ABS_Z, number);
+                    } else if (strcmp(action, "zr") == 0) {
+                        emit_abs(fds[pad], ABS_RZ, number);
+                    } else if (strcmp(action, "hx") == 0) {
+                        emit_abs(fds[pad], ABS_HAT0X, number);
+                    } else if (strcmp(action, "hy") == 0) {
+                        emit_abs(fds[pad], ABS_HAT0Y, number);
                     } else if (strcmp(action, "ad") == 0) {
                         emit_key(fds[pad], BTN_A, 1);
                     } else if (strcmp(action, "au") == 0) {

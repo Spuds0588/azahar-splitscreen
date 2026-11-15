@@ -1492,3 +1492,78 @@ corrupted and will now be reset." dialog, so the copied save set is not accepted
 game even though the files are byte-identical across slots. That is the save path, not the
 viewer, and it is the next thing to chase (candidates: the NAND save metadata/HMAC that
 pairs with the SD save, or a file the copy leaves behind).
+
+## 2026-11-15 (36) - Pad gameplay input, and forwarded keys that never reached the guest
+
+A pad could peek but not play: the viewer forwarded touches and keys, and no pad button
+touched the key path. The pads now drive their own seat's console through the forwarded-key
+datagrams the keyboard already uses (`type 1`/`2` with a `Qt::Key`), so a seat needs no new
+protocol and the seat-side keymap stays the one in `slots/pN/.../qt-config.ini`.
+
+| pad input | Qt key | 3DS |
+| --- | --- | --- |
+| A / B / X / Y | 65 / 83 / 90 / 88 | A / B / X / Y |
+| right shoulder | 87 | R |
+| left trigger / right trigger | 49 / 50 | ZL / ZR |
+| left stick click | 81 | L |
+| Start / Select / Home | 77 / 78 / 66 | Start / Select / Home |
+| d-pad | 84 / 71 / 70 / 72 | d-pad |
+| left stick | 16777235/37/34/36 | circle pad (`analog_from_button` arrows) |
+| right stick | - | touch pointer (focused seat only, unchanged) |
+| right stick click (R3) | - | tap at the pointer |
+| left shoulder (hold) | - | peek (unchanged) |
+
+Two rebindings fall out of A becoming a game button. **Tap moved from A to R3**, because A is
+the button a player mashes on a menu; and **the right shoulder is now R**, so the peek stays
+on the left shoulder only (F5-F8 still peek for a seat without a pad). L sits on *left stick
+click* because both shoulders and both triggers are taken.
+
+Buttons go to **the pad's own seat**, not the focused tile - a player pressing A is pressing
+their own console - while the right stick and the tap still only act on the seat the player is
+looking at. The viewer tracks each pad's held buttons, axes and hat, and `release_pad` sends
+the matching key-ups when a pad disappears, so unplugging mid-press cannot leave a button
+stuck down in a game.
+
+### The defect this uncovered
+
+Forwarded keys did nothing in a game. The datagrams went out (socket probe, `docs/evidence/
+pad-input-sockets.txt`) and the touchpath worked, but the guest saw no button. Cause: seats
+run as **separate `azahar` processes** launched with `--input-socket`, and their profile
+binds plain `engine:keyboard` (`profiles\1\button_a="code:65,engine:keyboard"`), while
+`PressForwardedKey` pressed a per-window `KeyState` registered as `keyboard_<ptr>`. Nothing
+in the profile ever named that state, so the presses landed in a device no HID slot read.
+The per-System override that exists for in-process seats (`inproc_seats.cpp`) is not set on
+this path, and its rewrite in `hid.cpp` only matches specs that *start* with
+`engine:keyboard`, which the ini's `code:65,engine:keyboard` form does not.
+
+The fix mirrors what touch already does: the first window in a process also registers its
+key state under the historical name `keyboard`, and the window's own key handlers press that
+same state through `PressForwardedKey`. A seat process has exactly one window, so
+`engine:keyboard` now resolves to the seat's own state - including the circle pad's nested
+`up/down/left/right` specs, which name the same device, so pad steering works without a
+second change. Physical typing in a visible window keeps working because its events go to the
+same state.
+
+### Audio: player 1 only, by null sink
+
+`slots.rs` now writes an `[Audio]` block per seat: seat 1 keeps `volume=1` and the default
+output, seats 2-4 get `volume=0` and `output_type` set to the null sink. The value has to be
+Qt's escaped QVariant `@Variant(\0\0\0\x84\0\0\0\0\0\0\0\1)`: `output_type` is read with
+`value.value<u32>()`, so a plain `output_type=1` reads back as a QString and falls back to
+Auto (checked by reading the ini back with a throwaway QSettings program).
+
+| check | result |
+| --- | --- |
+| 4P MK7 session, `wpctl status` | exactly one `Azahar Output` stream (`output_FL/FR` > ALC257 analog); no stream for seats 2-4 |
+| ini after the session | p1 `Auto (0)`, p2-p4 `Null (1)` - Azahar rewrites the file on exit with what it loaded, so the null sink was parsed, not ignored |
+| pad input, socket level | P2's pad A while P1's tile is focused writes `key=65` to p2's socket only; R/L/ZL/d-pad/left stick/R3-tap/peek all as in the table; unplug after a press emits the key-up |
+| pad input, in the guest (`tools/touchprobe`) | P1's tile counts `keys=5` from five pad presses, P2's stays `keys=0` (capture: `docs/evidence/pad-keys-in-guest.png`) |
+| live MK7 2P | ~62 fps, `EXIT=0`, 0 processes, 0 rings |
+
+Not done, on purpose: MK7's "Connecting to Nintendo Network" screen stays up and ignores the
+pad in this session, so the in-game feel (steering, tap menus) is the manual step. Sticks are
+still 8-way: `analog_from_button` turns arrow keys into a full-deflection circle pad, so a
+half-tilt on the stick is not expressible yet. And "player 1's music, everyone's sound
+effects" cannot be a setting - the null sink is all-or-nothing per console, so it needs core
+audio work (split the HLE audio stream into music and effects, or mix the other seats'
+effects in).

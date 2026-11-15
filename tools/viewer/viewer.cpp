@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -57,15 +58,48 @@ static_assert(sizeof(InputMessage) == 12, "input message must stay 12 bytes");
 /// four players can peek without borrowing a letter key from each other.
 constexpr int kPeekKeys[] = {Qt::Key_F5, Qt::Key_F6, Qt::Key_F7, Qt::Key_F8};
 
+/// A pad button and the Qt key the seat's input profile binds it to. The codes
+/// mirror the `[Controls]` defaults Azahar writes for a fresh user dir (A=65,
+/// B=83, X=90, Y=88, L=81, R=87, ZL=49, ZR=50, Start=77, Select=78, Home=66,
+/// d-pad 84/71/70/72), and the seat presses them through the forwarded-key path
+/// the keyboard already uses, so pads need no new protocol or fork patch.
+struct PadKey {
+    int button;
+    quint32 key;
+};
+constexpr PadKey kPadKeys[] = {
+    {SDL_CONTROLLER_BUTTON_A, 65},              // A
+    {SDL_CONTROLLER_BUTTON_B, 83},              // B
+    {SDL_CONTROLLER_BUTTON_X, 90},              // X
+    {SDL_CONTROLLER_BUTTON_Y, 88},              // Y
+    {SDL_CONTROLLER_BUTTON_DPAD_UP, 84},        // d-pad up
+    {SDL_CONTROLLER_BUTTON_DPAD_DOWN, 71},      // d-pad down
+    {SDL_CONTROLLER_BUTTON_DPAD_LEFT, 70},      // d-pad left
+    {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 72},     // d-pad right
+    {SDL_CONTROLLER_BUTTON_START, 77},          // Start
+    {SDL_CONTROLLER_BUTTON_BACK, 78},           // Select
+    {SDL_CONTROLLER_BUTTON_GUIDE, 66},          // Home
+    {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 87},  // R
+    {SDL_CONTROLLER_BUTTON_LEFTSTICK, 81},      // L (stick click, so L is reachable)
+};
+/// Triggers are axes, so they are read with a threshold rather than a button.
+constexpr quint32 kTriggerKeys[] = {49, 50}; // ZL, ZR
+/// Left stick -> circle pad: the arrow keys the profile maps to the analog with
+/// `analog_from_button`, which is how a keyboard already gets a circle pad.
+constexpr quint32 kStickKeys[] = {16777235, 16777237, 16777234, 16777236}; // up, down, left, right
+constexpr float kStickPress = 0.5f;
+
 /// Right-stick touch pointer. The deadzone is the usual stick slack (about a
 /// fifth of travel), and the speed is in console pixels per second: 320 px/s
 /// crosses the 400 px touch screen in 1.25 s, fast enough to reach a menu entry
 /// and slow enough to land on one.
 constexpr float kStickDeadzone = 0.2f;
 constexpr float kTouchSpeed = 320.0f;
-/// Taps at the pointer. A face button, because both shoulders already hold a
-/// peek, and no pad button reaches the console yet, so nothing is shadowed.
-constexpr int kTapButton = SDL_CONTROLLER_BUTTON_A;
+/// Taps the touch pointer. The right stick click: the right stick already walks
+/// the pointer, and every face button now plays its 3DS button, so tapping must
+/// not steal one of those. Left shoulder holds a peek; right shoulder is R.
+constexpr int kTapButton = SDL_CONTROLLER_BUTTON_RIGHTSTICK;
+constexpr int kPeekButton = SDL_CONTROLLER_BUTTON_LEFTSHOULDER;
 
 void log(const QString& line) {
     QByteArray utf8 = line.toUtf8();
@@ -671,6 +705,87 @@ int Viewer::pad_seat(SDL_JoystickID instance) const {
     return -1;
 }
 
+int Viewer::pad_index(SDL_JoystickID instance) const {
+    for (int i = 0; i < static_cast<int>(pads_.size()); ++i) {
+        if (pads_[i].instance == instance) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/// Buttons go to the seat that owns the pad, not to the focused tile: a player
+/// pressing A is pressing their own 3DS's A. The key travels as the same
+/// forwarded key the keyboard sends, so the seat's own profile decides what it
+/// means.
+void Viewer::pad_button(Pad& pad, int sdl_button, bool down) {
+    for (int i = 0; i < static_cast<int>(std::size(kPadKeys)); ++i) {
+        if (kPadKeys[i].button != sdl_button) {
+            continue;
+        }
+        const quint32 bit = 1u << i;
+        if (((pad.buttons & bit) != 0) == down) {
+            return; // already in that state
+        }
+        pad.buttons = down ? (pad.buttons | bit) : (pad.buttons & ~bit);
+        send_input(pad.seat, down ? 1 : 2, kPadKeys[i].key, 0, 0);
+        return;
+    }
+}
+
+/// The left stick is the circle pad. The seat profile turns those arrow keys
+/// into an analog axis (`analog_from_button`), so the game sees a real circle
+/// pad rather than four d-pad directions; only direction changes are sent, so a
+/// held stick does not spam the socket.
+void Viewer::pad_stick(Pad& pad, float x, float y) {
+    quint32 dirs = 0;
+    if (y < -kStickPress) {
+        dirs |= 1u;
+    }
+    if (y > kStickPress) {
+        dirs |= 2u;
+    }
+    if (x < -kStickPress) {
+        dirs |= 4u;
+    }
+    if (x > kStickPress) {
+        dirs |= 8u;
+    }
+    const quint32 changed = dirs ^ pad.dirs;
+    for (int i = 0; i < 4; ++i) {
+        if ((changed & (1u << i)) == 0) {
+            continue;
+        }
+        const bool down = (dirs & (1u << i)) != 0;
+        send_input(pad.seat, down ? 1 : 2, kStickKeys[i], 0, 0);
+    }
+    pad.dirs = dirs;
+}
+
+/// An unplugged pad must not leave a button held in the console, and neither may
+/// a viewer that is closing.
+void Viewer::release_pad(Pad& pad) {
+    for (int i = 0; i < static_cast<int>(std::size(kPadKeys)); ++i) {
+        if (pad.buttons & (1u << i)) {
+            send_input(pad.seat, 2, kPadKeys[i].key, 0, 0);
+        }
+    }
+    for (int i = 0; i < 4; ++i) {
+        if (pad.dirs & (1u << i)) {
+            send_input(pad.seat, 2, kStickKeys[i], 0, 0);
+        }
+    }
+    for (int i = 0; i < 2; ++i) {
+        if (pad.triggers[i]) {
+            send_input(pad.seat, 2, kTriggerKeys[i], 0, 0);
+        }
+    }
+    pad.buttons = 0;
+    pad.dirs = 0;
+    pad.triggers[0] = false;
+    pad.triggers[1] = false;
+}
+
 /// Drawn through the same mapping a click uses, so what is aimed at is what the
 /// tap hits. Only the selected tile shows one.
 void Viewer::draw_pointer(QPainter& painter, int index) {
@@ -869,6 +984,7 @@ void Viewer::remove_pad(SDL_JoystickID instance) {
             continue;
         }
         set_peek(it->seat, false);
+        release_pad(*it);
         if (it->seat == selected_) {
             stick_x_ = 0; // a stick that vanished must not keep steering
             stick_y_ = 0;
@@ -903,38 +1019,69 @@ void Viewer::poll_pads() {
                                                                  : event.jdevice.which);
             break;
         case SDL_CONTROLLERAXISMOTION: {
-            // Only the pad that owns the focused tile steers that tile's
-            // pointer, so two pads fighting over one cursor is impossible.
-            const int via = pad_seat(event.caxis.which);
-            if (via < 0 || via != selected_) {
+            const int index = pad_index(event.caxis.which);
+            if (index < 0) {
                 break;
             }
+            Pad& pad = pads_[index];
             const float value = std::clamp(event.caxis.value / 32767.0f, -1.0f, 1.0f);
-            if (event.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTX) {
-                stick_x_ = value;
-            } else if (event.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTY) {
-                stick_y_ = value;
+            switch (event.caxis.axis) {
+            case SDL_CONTROLLER_AXIS_TRIGGERLEFT:
+            case SDL_CONTROLLER_AXIS_TRIGGERRIGHT: {
+                const int which = event.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT ? 0 : 1;
+                const bool down = value > 0.5f;
+                if (pad.triggers[which] != down) {
+                    pad.triggers[which] = down;
+                    send_input(pad.seat, down ? 1 : 2, kTriggerKeys[which], 0, 0);
+                }
+                break;
+            }
+            case SDL_CONTROLLER_AXIS_LEFTX:
+                pad.left_x = value;
+                pad_stick(pad, pad.left_x, pad.left_y);
+                break;
+            case SDL_CONTROLLER_AXIS_LEFTY:
+                pad.left_y = value;
+                pad_stick(pad, pad.left_x, pad.left_y);
+                break;
+            case SDL_CONTROLLER_AXIS_RIGHTX:
+            case SDL_CONTROLLER_AXIS_RIGHTY:
+                // Only the pad that owns the focused tile steers that tile's
+                // pointer, so two pads fighting over one cursor is impossible.
+                if (pad.seat != selected_) {
+                    break;
+                }
+                if (event.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTX) {
+                    stick_x_ = value;
+                } else {
+                    stick_y_ = value;
+                }
+                break;
+            default:
+                break;
             }
             break;
         }
         case SDL_CONTROLLERBUTTONDOWN:
         case SDL_CONTROLLERBUTTONUP: {
-            const quint8 button = event.cbutton.button;
-            const int via = pad_seat(event.cbutton.which);
+            const int index = pad_index(event.cbutton.which);
+            if (index < 0) {
+                break;
+            }
+            Pad& pad = pads_[index];
+            const int button = event.cbutton.button;
             const bool pressed = event.type == SDL_CONTROLLERBUTTONDOWN;
-            if (via >= 0 && via == selected_ && button == kTapButton) {
-                if (pressed != tapping_) {
+            if (button == kPeekButton) {
+                set_peek(pad.seat, pressed);
+            } else if (button == kTapButton) {
+                if (pad.seat == selected_ && pressed != tapping_) {
                     tapping_ = pressed;
-                    tap_pointer(via, pressed);
+                    tap_pointer(pad.seat, pressed);
                 }
-                break;
-            }
-            if (button != SDL_CONTROLLER_BUTTON_LEFTSHOULDER &&
-                button != SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
-                break;
-            }
-            if (via >= 0) {
-                set_peek(via, pressed);
+            } else {
+                // Everything else plays that pad's own console: the viewer has no
+                // saying in which tile is focused for gameplay input.
+                pad_button(pad, button, pressed);
             }
             break;
         }

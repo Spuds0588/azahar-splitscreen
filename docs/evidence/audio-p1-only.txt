@@ -1,0 +1,16 @@
+# Audio: only the first seat opens an output device
+#
+# 4-player MK7 session, PipeWire clients while it runs:
+#   Azahar Output -> output_FR/output_FL > ALC257 Analog:playback (one stream)
+#   (the three other seats create no output stream at all)
+#
+# Each slot's [Audio] output_type after the session. Azahar rewrites the ini on
+# exit with the values it loaded, so these are what each seat actually used:
+#   p1: Auto (0)
+#   p2: Null (1)
+#   p3: Null (1)
+#   p4: Null (1)
+#
+# A null sink runs the audio DSP but opens no device and mixes nothing, so the
+# three background seats cannot clip P1's output. Per-player sound effects on
+# top of P1's music is a core change, not a setting: see todo.md.

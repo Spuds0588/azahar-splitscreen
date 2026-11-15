@@ -264,10 +264,13 @@ touch are playability polish and may slip to Milestone 4.
 - [ ] **Only two of the six test ROMs boot**: Kirby, Zelda Tri Force Heroes, Mario Party Top
       100 and New Super Mario Bros. 2 all report "an encrypted or unsupported application",
       so a bootable dump would widen QA past MK7 and MHS.
-- [ ] **Per-seat audio split** (next audio step): player 1's music with everyone's sound
-      effects. A null sink is per console and all-or-nothing, so this needs core work: split
-      the HLE audio stream into music and effects (or mix the muted seats' effects into
-      seat 1's output) before it reaches the backend.
+- [x] **Shared audio policy: player 1 only** (2026-11-15, owner's decision): the session's one
+      output is seat 1's console and seats 2-4 stay on the null sink. The alternative (player 1's
+      music with everyone's sound effects) is not available at the sink: the HLE DSP mixes a
+      console's music and effects into one stream before any sink sees it, and the seats are
+      separate processes. Measured on the device: one stream in 1-, 2- and 4-seat sessions, the
+      4-seat capture within 1 dB of the 2-seat one, and a second console provably adds a second
+      stream. History (39), `docs/evidence/shared-audio.txt`.
 - [x] **Analog sticks** (2026-11-15): the left stick now sends its real position (a
       type-6 datagram, int16 x/y) instead of arrow keys, and HID hands it to the console as
       the circle pad; a seat with no controller still steers with the profile's arrow keys.

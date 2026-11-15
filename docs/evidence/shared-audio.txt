@@ -1,0 +1,100 @@
+Shared audio: player 1's console, measured
+==========================================
+
+Policy (owner's decision, 2026-11-15): the session's single audio output is player 1's
+console. Seats 2-4 stay on the null sink. There is no music/effects split, because there
+is nothing to split: Azahar's HLE DSP mixes a console's music and effects into one stereo
+`FinalMixSamples` stream before any sink (`src/audio_core/hle/`), and the four seats are
+four separate processes. The app can choose which console's stream reaches the device; it
+cannot take music from one console and effects from another.
+
+That is what `src-tauri/src/slots.rs` already writes per seat (commit bb893d5f9):
+
+    p1: output_type=@Variant(\0\0\0\x84\0\0\0\0\0\0\0\0)  volume=1      # Auto (0)
+    p2: output_type=@Variant(\0\0\0\x84\0\0\0\0\0\0\0\x1)  volume=0      # Null (1)
+    p3, p4: same as p2
+
+This pass changed no code. It proves that policy against the actual device output and
+records what a measurement of "the app's audio" has to look like.
+
+How the capture was validated first
+-----------------------------------
+`pw-record --target alsa_output.pci-0000_00_1f.3.analog-stereo.monitor` does not error when
+the name does not resolve: it silently records the default *source*, the microphone. Every
+early capture in this pass was therefore the room mic, and it looked like a broken emulator:
+
+    default-source capture: 2.94 s RMS -1.0 dBFS peak 32768   (a flat noise wall)
+    spectrogram: broadband, no notes, no gaps
+
+The same 330 Hz tone through the two paths:
+
+    name-targeted capture (mic fallback): 330 Hz not measurable above the noise
+    sink-id capture (--target 54):        0.0265 peak amplitude, -31.5 dBFS
+
+With `pw-link -l` checked *during* the recording, the sink-id capture is the sink:
+
+    alsa_output...:monitor_FL  |-> pw-record:input_FL
+    alsa_output...:monitor_FR  |-> pw-record:input_FR
+
+Everything below was recorded on that link. The sink's volume was set to 1.0 for the
+measurements (it was 0.40 and muted before), then restored to 0.40 / muted.
+
+Sessions (MK7, 48 kHz s16 stereo, 10 s of the sink monitor)
+-----------------------------------------------------------
+                                        streams        capture
+    session                     seats   (Azahar Output) RMS L       peak
+    --------------------------  -----   --------------  ----------  ------
+    2 players, boot             2       1                -28.2 dBFS  24639
+    2 players, attract          2       1                -14.5 dBFS  26080
+    1 player request -> 2 seats 2       1                -13.6 dBFS  26317
+    4 players, attract          4       1                -13.7 dBFS  26477
+    2 seats + control console   3       2 (control adds) -10.2 dBFS  32768
+
+Stream ownership, by the `application.process.id` of the PipeWire node mapped to the seat's
+`--user` argument on its command line:
+
+    2 players:  85 Azahar Output pid 1365588 -> slots/p1/user   (p2 pid 1365692: no stream)
+    1 request:  85 Azahar Output pid 1380524 -> slots/p1/user   (p2 pid 1380654: no stream)
+    4 players:  85 Azahar Output pid 1391326 -> slots/p1/user   (p2/p3/p4 1391428 / 1391589
+                                                                / 1391794: no stream)
+
+Seat settings read back from the inis after the sessions (Azahar rewrites them with what it
+loaded at exit, so the null sink was parsed, not ignored): p1 Auto/volume 1; p2-p4 Null
+(1)/volume 0.
+
+Spectrograms (what "it is really the game" looks like, and that nothing is doubled):
+    shared-audio-2p-boot.png     harmonic stacks with a silent gap, then a new sound
+    shared-audio-2p.png          attract mode: music + engine sounds, no clipping
+    shared-audio-1p.png          the same, 1-player request (2 seats spawned)
+    shared-audio-4p.png          the same, 4 seats
+    shared-audio-control.png     two consoles: visibly denser, peaks clip
+
+One stream is the only thing feeding the device, and the 1-, 2- and 4-seat captures sit
+within 1 dB of each other: if another seat's audio were being mixed in, the level would rise
+by about +3 dB (uncorrelated) or +6 dB (same music), and there would be a second node.
+
+No-leak control (the same seat, with its audio lines removed)
+------------------------------------------------------------
+`slots/p2/user` copied to /tmp/p2-audio, with only `[Audio]`'s `output_type` and `volume`
+keys deleted, then launched as a standalone console on the same ROM:
+
+    before: 1 stream (p1)                     capture -14.5 dBFS
+    after:  2 streams (p1 + pid 1375064)      capture -10.2 dBFS, peak 32768
+
+So the capture does see a second console, seat 2's console does render audio when it has a
+sink, and what keeps it out of the session's output is the null sink - not a dead audio path.
+
+Single-seat behaviour
+---------------------
+`players.clamp(2, 4)` means a one-player request still runs two seats (the layout needs two
+tiles). Seat 1 opens the device, seat 2 does not, and the capture is the same as the two-seat
+one within 1 dB, so a session that used to be "one console audible" still is.
+
+Not done, on purpose
+--------------------
+- The music/effects split (player 1's music, everyone's effects) needs per-console access to
+  the DSP's sources, i.e. either a game-specific classifier or real mixing in core audio; the
+  HLE mix makes it impossible at the sink. Declined for now.
+- Seats 2-4 still run the DSP and mix into the null sink, so the CPU saving of "no audio for
+  hidden players" is not taken; only the device output is avoided.
+- No per-seat volume control: the policy is all-or-nothing per console.

@@ -1657,3 +1657,55 @@ caught it - the viewer looked completely healthy in its own log.
 1.5% off centre reads as a permanent slight deflection, which games' own deadzones absorb;
 if a worn controller drifts more than that, a deadzone belongs in `pad_stick`. The right
 stick keeps its own deadzone for the touch pointer, which is unchanged.
+## 2026-11-15 (39) - Shared audio is one console's worth, measured
+
+"Player 1's music with everyone's sound effects" turned out to be a request the emulator
+cannot answer, and the owner chose the other way. The HLE DSP mixes a console's music and
+effects into one stereo stream (`FinalMixSamples`) before any sink can see them, and the four
+seats are four processes with four separate mixes. Nothing downstream can take music from one
+console and effects from another, so the choice is which console reaches the device - and the
+decision is player 1, i.e. the policy `slots.rs` already writes (commit (36)): seat 1 keeps the
+default output at `volume=1`, seats 2-4 get the null sink at `volume=0`.
+
+That means this pass changed no code. What it changed is the evidence: until now "audio works"
+meant "exactly one `Azahar Output` node exists", which is a wiring check, not a listening
+check. `docs/evidence/shared-audio.txt` records the device output itself.
+
+**The trap.** `pw-record --target <sink>.monitor` does not fail when the name does not resolve:
+it records the default source instead. Every early capture in this pass was the laptop
+microphone, a flat -1 dBFS noise wall whose spectrogram had no notes and no gaps - which reads
+exactly like an emulator spraying garbage, and nearly sent me into the audio core. Targeting
+the sink's node id and checking `pw-link -l` *during* the recording (`monitor_FL/FR ->
+pw-record:input_FL/FR`) fixed it; a 330 Hz tone in the sink then measured 0.0265 peak
+amplitude, where the name-targeted capture had shown nothing.
+
+**Measured** (MK7, sink monitor, sink volume 1.0 for the test and restored to its 0.40/muted
+afterwards):
+
+| session | seats | audio streams | capture RMS | peak |
+| --- | --- | --- | --- | --- |
+| 2 players, boot | 2 | 1 (pid -> `slots/p1/user`) | -28.2 dBFS | 24639 |
+| 2 players, attract | 2 | 1 | -14.5 dBFS | 26080 |
+| 1-player request | 2 | 1 | -13.6 dBFS | 26317 |
+| 4 players, attract | 4 | 1 | -13.7 dBFS | 26477 |
+| 2 seats + control console | 3 | 2 | -10.2 dBFS | 32768 |
+
+The four-seat session's node belongs to `slots/p1/user`'s pid and p2-p4 have none, while all
+four seats run at 60 fps. The 1-, 2- and 4-seat captures are within 1 dB of each other: audio
+from a second console would show up as +3 to +6 dB and a second node. The spectrograms
+(`docs/evidence/shared-audio-{1p,2p,2p-boot,4p}.png`) show harmonics, note changes and gaps,
+i.e. the game, not a stuck buffer.
+
+**The control that makes "silence" mean something.** Copying `slots/p2/user` and deleting only
+its `[Audio]` keys, then running it as a standalone console, adds a second `Azahar Output` and
+raises the same capture from -14.5 to -10.2 dBFS. Seat 2's console therefore does produce
+audio; the null sink is what keeps it out, and the measurement would have seen it.
+
+**Single seat.** `players.clamp(2, 4)` means a one-player request still runs two seats, because
+the layout needs two tiles. Seat 1 opens the device and seat 2 does not, and that capture is
+within 1 dB of the two-seat one, so nothing that was audible before has changed.
+
+**Not done:** the split itself needs per-console access to the DSP's sources - a game-specific
+classifier, or mixing inside core audio - and is declined for now. Seats 2-4 also still run the
+DSP into the null sink (only the device is avoided, not the CPU), and there is no per-seat
+volume: the policy is all-or-nothing per console.

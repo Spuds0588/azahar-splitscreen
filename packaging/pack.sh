@@ -13,11 +13,18 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 cargo_target=${CARGO_TARGET:-src-tauri/target/release}
 
 cd "$root"
+# The emulator lands in build/bin/Release with a multi-config generator and in
+# build/bin with Ninja (macOS CI). The bundle always uses the Release layout,
+# because that is what the orchestrator resolves at run time.
+bin_dir=build/bin/Release
+if [ ! -x "$bin_dir/azahar" ]; then
+    bin_dir=build/bin
+fi
 out="out/$name"
 rm -rf "$out"
 mkdir -p "$out/build/bin/Release" "$out/tools/viewer/build" "$out/Test Roms"
 
-cp build/bin/Release/azahar build/bin/Release/azahar-room "$out/build/bin/Release/"
+cp "$bin_dir/azahar" "$bin_dir/azahar-room" "$out/build/bin/Release/"
 cp "$cargo_target/azahar-splitscreen" "$out/build/bin/Release/"
 cp tools/viewer/build/azahar-viewer "$out/tools/viewer/build/"
 cp packaging/run.sh packaging/BETA.txt "$out/"

@@ -288,9 +288,10 @@ touch are playability polish and may slip to Milestone 4.
 - [ ] **MK7's long boot**: the title spends ~90-120 s on "Connecting to Nintendo Network" and
       ignores input there, which reads as a hang. A line in the picker (or a "still loading"
       hint on the tile) would stop the next session chasing a pad bug that is not there.
-- [ ] **Only two of the six test ROMs boot**: Kirby, Zelda Tri Force Heroes, Mario Party Top
-      100 and New Super Mario Bros. 2 all report "an encrypted or unsupported application",
-      so a bootable dump would widen QA past MK7 and MHS.
+- [ ] **QA runs on two titles**: only Mario Kart 7 and Monster Hunter Stories boot, so a
+      bootable second dump would widen coverage. The other four dumps (Kirby, Zelda Tri Force
+      Heroes, Mario Party Top 100, NSMB2) failed with "Failed to determine system mode" and
+      were deleted from `Test Roms/` at the owner's request. History (44).
 - [x] **Effects-tilted couch mix** (2026-11-16, owner's decision): every seat feeds the one
       output; seat 1 keeps its music at full and seats 2-4 are high-passed (300 Hz, 2nd order)
       and trimmed -6 dB in `DspInterface::OutputCallback`, behind the fork flag

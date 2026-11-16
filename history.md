@@ -1860,3 +1860,24 @@ room, seat, emulator or viewer process, no `/dev/shm/azsh-*` and no audio stream
 Question answered along the way: save states are not a feature of this app (it manages save
 *data* sets), and gamepad input is working but only for pads that are attached - the picker
 reported "Gamepads: none detected" in these runs.
+## 2026-11-16 (44) - Four test dumps that never booted, deleted
+
+`Test Roms/` held six dumps and only two had ever booted. Rather than trust that note, each
+dump was run once more before anything was deleted: one Azahar at a time, its own user dir, the
+fork's unmapped-window path (`--shm-frame`), 25 seconds, then SIGKILL. (A plain `timeout` is not
+enough - a standalone instance ignores SIGTERM and the first attempt sat on the first dump
+until the tool timed out; the SIGKILL run finished six in two and a half minutes.)
+
+| dump | verdict |
+| --- | --- |
+| Kirby's Extra Epic Yarn (USA) Decrypted | `Failed to determine system mode` - deleted (2.0 GB) |
+| Zelda - Tri Force Heroes (USA) Decrypted | `Failed to determine system mode` - deleted (1.0 GB) |
+| Mario Party - The Top 100 (USA) Decrypted | `Failed to determine system mode` - deleted (0.5 GB) |
+| New Super Mario Bros. 2 (USA) Decrypted | `Failed to determine system mode` - deleted (0.5 GB) |
+| Mario Kart 7 (Europe) | boots: 24 fps lines in the stats file - kept (1.0 GB) |
+| Monster Hunter Stories (Europe) | boots: 24 fps lines in the stats file - kept (2.0 GB) |
+
+About 4 GB was freed; `Test Roms/` now holds the two dumps that run. The folder is gitignored,
+so the tree change is the todo note: the QA gap is now "only MK7 and MHS can be boot-tested"
+rather than a count of broken dumps. The rings the SIGKILLed runs left in `/dev/shm` were
+removed by hand.

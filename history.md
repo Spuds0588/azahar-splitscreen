@@ -1986,3 +1986,32 @@ Rebuilt and re-ran on Linux after the change: emulator, viewer and orchestrator 
 seats hold `fps=60.0 speed=100.3`, the viewer paints at `presented_fps=62.4`, and closing the
 window leaves 0 windows and 0 rings - the new group-based teardown behaves like the old one.
 `v0.1.0-beta.2` carries the fix; the Intel macOS build is the one this entry is waiting on.
+
+## 2026-11-16 (48) - A real menu bar in the one window
+
+The session had four keyboard shortcuts and no way to discover them: the picker hides on Start,
+so a player who joined late could not see what the pad buttons did, could not find the layout
+toggle, and had nothing to press to change either. The window now carries a standard menu bar.
+
+- **View** - `Both Screens` / `Top Screen Only` (the same switch Tab drives, with the check mark
+  following Tab as well as a click) and `Fullscreen` (`F11`). The window opens fullscreen and the
+  menu says so.
+- **Controls** - `Controls Reference` (`F1`) lists every key and every pad button by name, built
+  from the live mapping, and `Gamepad Mapping…` re-binds any 3DS button: pick the action, press
+  Change, then press the button on any pad. The next press is swallowed by the mapping instead of
+  playing the console, one button can only drive one action, and the mapping is saved to
+  `slots/pads.json` so it survives the session. Reset to Defaults restores the table.
+- **Session** and **Help** - `Quit Session` (what Esc and closing the window already did) and
+  `About`.
+- **Before the session** - the picker gained a `Screens` choice (sized to the players, both
+  screens, top screen only) that sets the layout the window opens in, plus a line saying where
+  the controls are. It travels as `AZAHAR_VIEW` and is a one-run override, not a replacement for
+  the remembered layout.
+
+The window became a `QMainWindow` with the composite as its centre, which is what gets a native
+menu bar; the notice window (an encrypted dump) still has none, since there is no session behind
+it. Verified on display `:1` with two MK7 seats: the bar renders above the tiles at 60 fps, View
+switches to top-only and back (`viewer: view top screen only` / `both screens`), `--view top`
+from the picker's choice arrives at the viewer, F1 lists the mapping, the mapping dialog lists
+all 13 actions and arms itself for the next pad press, and closing the window still leaves 0
+windows and 0 rings.

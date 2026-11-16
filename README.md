@@ -58,15 +58,26 @@ azahar-splitscreen  (Tauri picker)
 
 ## Controls
 
+The session window has a menu bar: **Session** (quit), **View** (both screens / top screen only,
+fullscreen), **Controls** (controls reference, gamepad mapping) and **Help**.
+
 | | |
 | --- | --- |
-| `F5`…`F10` | Hold to peek at that player's touch screen |
-| `Tab` | Toggle top-screen-only / both-screens layout |
-| Mouse | Taps go to the seat under the pointer |
-| `Esc` / close the window | Quit (everything is torn down) |
+| `F5`…`F10`, pad's left shoulder | Hold to peek at that player's touch screen |
+| `Tab`, or View menu | Toggle top-screen-only / both-screens layout |
+| `F1` | Controls reference: every keyboard key and pad button |
+| `F11` | Fullscreen |
+| Mouse | Click a tile to select it; a click on its screen is a touch |
+| `Esc`, or Session → Quit Session | Quit (everything is torn down) |
 
-Gamepads are enumerated by the picker and their buttons are forwarded to the seat they were
-assigned to; without one, the keyboard works.
+The picker's **Screens** choice picks the layout the session opens in; the View menu and `Tab`
+change it live, and the viewer opens the next session the way you last left it.
+
+One pad mapping serves every pad in the session: the left stick is the circle pad, the right
+stick walks the touch pointer and clicking it taps, and a held left shoulder is that seat's peek.
+**Controls → Gamepad Mapping…** re-binds any of the 3DS buttons by pressing the button you want;
+the mapping is saved to `slots/pads.json` and survives the session. The picker lists the pads
+the kernel reports; without one, the keyboard works.
 
 ## Build and run
 

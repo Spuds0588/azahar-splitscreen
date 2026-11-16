@@ -14,6 +14,6 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGLWidgets)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
 
-add_executable(azahar-viewer main.cpp viewer.cpp viewer.h)
+add_executable(azahar-viewer main.cpp menus.cpp menus.h viewer.cpp viewer.h)
 target_include_directories(azahar-viewer PRIVATE ${SDL2_INCLUDE_DIRS})
 target_link_libraries(azahar-viewer PRIVATE Qt6::Widgets Qt6::OpenGLWidgets ${SDL2_LIBRARIES})

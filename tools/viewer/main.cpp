@@ -8,10 +8,12 @@
 // selected seat (click a tile to select it, Escape quits). Fullscreen and
 // frameless by default — a couch session should be one window and nothing else.
 
+#include "menus.h"
 #include "viewer.h"
 
 #include <QApplication>
 #include <QHash>
+#include <QMainWindow>
 #include <QScreen>
 #include <QSurfaceFormat>
 
@@ -100,29 +102,38 @@ int main(int argc, char* argv[]) {
     for (auto& seat : seats) {
         seat.restart_path = restart_paths.value(seat.ring_name);
     }
-    Viewer viewer(seats, message);
-    viewer.setWindowTitle(title);
+    // The session window is a plain QMainWindow with the composite as its
+    // centre: that is what gives it a real menu bar (View, Controls, Help) in
+    // place of the hidden picker's absent options.
+    QMainWindow window;
+    window.setWindowTitle(title);
+    auto* viewer = new Viewer(seats, message);
+    window.setCentralWidget(viewer);
     if (!view_file.isEmpty()) {
-        viewer.set_view_file(view_file);
+        viewer->set_view_file(view_file);
     }
     // A one-run override: it opens in this layout but is not what the next
     // session resumes, which is the layout the player left it in.
     if (view_mode == QLatin1String("top")) {
-        viewer.set_view(View::Top, false);
+        viewer->set_view(View::Top, false);
     } else if (view_mode == QLatin1String("both")) {
-        viewer.set_view(View::Both, false);
+        viewer->set_view(View::Both, false);
     }
     if (!dump_path.isEmpty() && dump_frame > 0) {
-        viewer.set_dump(dump_path, dump_frame);
+        viewer->set_dump(dump_path, dump_frame);
+    }
+    if (message.isEmpty()) {
+        // A notice window has no session behind it, so it gets no menus.
+        attach_menus(window, *viewer);
     }
     if (!windowed) {
-        viewer.setWindowFlag(Qt::FramelessWindowHint, true);
-        viewer.setGeometry(viewer.screen()->availableGeometry());
+        window.setWindowFlag(Qt::FramelessWindowHint, true);
+        window.showFullScreen();
     } else {
-        viewer.resize(1280, 720);
+        window.resize(1280, 720);
+        window.show();
     }
-    viewer.show();
-    viewer.setFocus();
+    viewer->setFocus();
 
     return QApplication::exec();
 }

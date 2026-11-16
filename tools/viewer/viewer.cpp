@@ -3,6 +3,9 @@
 #include <QCursor>
 #include <QFile>
 #include <QFontMetrics>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -64,24 +67,20 @@ constexpr int kPeekKeys[] = {Qt::Key_F5, Qt::Key_F6, Qt::Key_F7,
 /// B=83, X=90, Y=88, L=81, R=87, ZL=49, ZR=50, Start=77, Select=78, Home=66,
 /// d-pad 84/71/70/72), and the seat presses them through the forwarded-key path
 /// the keyboard already uses, so pads need no new protocol or fork patch.
-struct PadKey {
-    int button;
-    quint32 key;
-};
-constexpr PadKey kPadKeys[] = {
-    {SDL_CONTROLLER_BUTTON_A, 65},              // A
-    {SDL_CONTROLLER_BUTTON_B, 83},              // B
-    {SDL_CONTROLLER_BUTTON_X, 90},              // X
-    {SDL_CONTROLLER_BUTTON_Y, 88},              // Y
-    {SDL_CONTROLLER_BUTTON_DPAD_UP, 84},        // d-pad up
-    {SDL_CONTROLLER_BUTTON_DPAD_DOWN, 71},      // d-pad down
-    {SDL_CONTROLLER_BUTTON_DPAD_LEFT, 70},      // d-pad left
-    {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 72},     // d-pad right
-    {SDL_CONTROLLER_BUTTON_START, 77},          // Start
-    {SDL_CONTROLLER_BUTTON_BACK, 78},           // Select
-    {SDL_CONTROLLER_BUTTON_GUIDE, 66},          // Home
-    {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 87},  // R
-    {SDL_CONTROLLER_BUTTON_LEFTSTICK, 81},      // L (stick click, so L is reachable)
+constexpr PadKey kDefaultPadKeys[] = {
+    {SDL_CONTROLLER_BUTTON_A, 65, "A"},
+    {SDL_CONTROLLER_BUTTON_B, 83, "B"},
+    {SDL_CONTROLLER_BUTTON_X, 90, "X"},
+    {SDL_CONTROLLER_BUTTON_Y, 88, "Y"},
+    {SDL_CONTROLLER_BUTTON_DPAD_UP, 84, "D-pad up"},
+    {SDL_CONTROLLER_BUTTON_DPAD_DOWN, 71, "D-pad down"},
+    {SDL_CONTROLLER_BUTTON_DPAD_LEFT, 70, "D-pad left"},
+    {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 72, "D-pad right"},
+    {SDL_CONTROLLER_BUTTON_START, 77, "Start"},
+    {SDL_CONTROLLER_BUTTON_BACK, 78, "Select"},
+    {SDL_CONTROLLER_BUTTON_GUIDE, 66, "Home"},
+    {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 87, "R"},
+    {SDL_CONTROLLER_BUTTON_LEFTSTICK, 81, "L (stick click)"},
 };
 /// Triggers are axes, so they are read with a threshold rather than a button.
 constexpr quint32 kTriggerKeys[] = {49, 50}; // ZL, ZR
@@ -142,6 +141,8 @@ Viewer::Viewer(QVector<Seat> seats, const QString& message, QWidget* parent)
             .arg(marked));
 
     load_view();
+    reset_pad_actions();
+    load_pads();
     init_pads();
 }
 
@@ -772,8 +773,8 @@ int Viewer::pad_index(SDL_JoystickID instance) const {
 /// forwarded key the keyboard sends, so the seat's own profile decides what it
 /// means.
 void Viewer::pad_button(Pad& pad, int sdl_button, bool down) {
-    for (int i = 0; i < static_cast<int>(std::size(kPadKeys)); ++i) {
-        if (kPadKeys[i].button != sdl_button) {
+    for (int i = 0; i < pad_keys_.size(); ++i) {
+        if (pad_keys_[i].button != sdl_button) {
             continue;
         }
         const quint32 bit = 1u << i;
@@ -781,7 +782,7 @@ void Viewer::pad_button(Pad& pad, int sdl_button, bool down) {
             return; // already in that state
         }
         pad.buttons = down ? (pad.buttons | bit) : (pad.buttons & ~bit);
-        send_input(pad.seat, down ? 1 : 2, kPadKeys[i].key, 0, 0);
+        send_input(pad.seat, down ? 1 : 2, pad_keys_[i].key, 0, 0);
         return;
     }
 }
@@ -804,9 +805,9 @@ void Viewer::pad_stick(Pad& pad, int x, int y) {
 /// An unplugged pad must not leave a button held in the console, and neither may
 /// a viewer that is closing.
 void Viewer::release_pad(Pad& pad) {
-    for (int i = 0; i < static_cast<int>(std::size(kPadKeys)); ++i) {
+    for (int i = 0; i < pad_keys_.size(); ++i) {
         if (pad.buttons & (1u << i)) {
-            send_input(pad.seat, 2, kPadKeys[i].key, 0, 0);
+            send_input(pad.seat, 2, pad_keys_[i].key, 0, 0);
         }
     }
     if (pad.left_x != 0 || pad.left_y != 0) {
@@ -896,6 +897,86 @@ void Viewer::save_view() const {
     QFile file(view_file_);
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
         file.write(view_ == View::Top ? "top\n" : "both\n");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pad mapping
+// ---------------------------------------------------------------------------
+
+QVector<PadAction> Viewer::pad_actions() const {
+    QVector<PadAction> actions;
+    actions.reserve(pad_keys_.size());
+    for (const auto& key : pad_keys_) {
+        actions.push_back({QString::fromLatin1(key.name), key.button});
+    }
+    return actions;
+}
+
+/// One button can drive one action: assigning a button another action already
+/// holds unbinds that action instead of leaving an unreachable duplicate.
+void Viewer::set_pad_action(int index, int button) {
+    if (index < 0 || index >= pad_keys_.size()) {
+        return;
+    }
+    for (int i = 0; i < pad_keys_.size(); ++i) {
+        if (i != index && pad_keys_[i].button == button) {
+            pad_keys_[i].button = -1;
+        }
+    }
+    pad_keys_[index].button = button;
+    save_pads();
+    log(QStringLiteral("viewer: %1 -> %2")
+            .arg(QString::fromLatin1(pad_keys_[index].name))
+            .arg(QString::number(button)));
+}
+
+void Viewer::reset_pad_actions() {
+    pad_keys_.clear();
+    for (const auto& key : kDefaultPadKeys) {
+        pad_keys_.push_back(key);
+    }
+}
+
+void Viewer::listen_for_pad_button(std::function<void(int)> sink) {
+    pad_listen_ = std::move(sink);
+}
+
+void Viewer::cancel_pad_listen() {
+    pad_listen_ = nullptr;
+}
+
+/// `buttons` is indexed like the built-in table, so a saved mapping survives a
+/// build that adds or reorders nothing; a size mismatch means the file predates
+/// this table and the defaults stay.
+void Viewer::load_pads() {
+    QFile file(pad_file_);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return;
+    }
+    const QJsonArray buttons = QJsonDocument::fromJson(file.readAll()).object().value("buttons").toArray();
+    if (buttons.size() != pad_keys_.size()) {
+        return;
+    }
+    for (int i = 0; i < pad_keys_.size(); ++i) {
+        pad_keys_[i].button = buttons[i].toInt(pad_keys_[i].button);
+    }
+    log(QStringLiteral("viewer: pad mapping loaded from %1").arg(pad_file_));
+}
+
+void Viewer::save_pads() const {
+    if (seats_.isEmpty()) {
+        return;
+    }
+    QJsonArray buttons;
+    for (const auto& key : pad_keys_) {
+        buttons.append(key.button);
+    }
+    QJsonObject root;
+    root.insert("buttons", buttons);
+    QFile file(pad_file_);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
     }
 }
 
@@ -1113,6 +1194,14 @@ void Viewer::poll_pads() {
             Pad& pad = pads_[index];
             const int button = event.cbutton.button;
             const bool pressed = event.type == SDL_CONTROLLERBUTTONDOWN;
+            if (pressed && pad_listen_) {
+                // The mapping dialog asked for the next press; it must not also
+                // play the console.
+                auto sink = std::move(pad_listen_);
+                pad_listen_ = nullptr;
+                sink(button);
+                break;
+            }
             if (button == kPeekButton) {
                 set_peek(pad.seat, pressed);
             } else if (button == kTapButton) {

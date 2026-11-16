@@ -42,7 +42,16 @@ fn start_session(
     save_mode: String,
     save_grouped: String,
     save_seats: Vec<String>,
+    view: String,
 ) -> Result<String, String> {
+    // The layout the one window opens in ("both", "top", or empty for the
+    // default: stacked for two players, top screen for three or more). Tab and
+    // the session's View menu still switch it live.
+    let view = match view.as_str() {
+        "both" | "top" => view,
+        _ => String::new(),
+    };
+    std::env::set_var("AZAHAR_VIEW", view);
     let mut guard = state.session.lock().map_err(|e| e.to_string())?;
     if let Some(mut running) = guard.take() {
         if running.is_running() {

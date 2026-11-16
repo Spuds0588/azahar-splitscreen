@@ -15,12 +15,32 @@ there; none ship with this bundle), pick 2-6 players, press Start. The picker
 hides and one session window opens. Close that window to quit: the room, every
 seat and the viewer are torn down with it.
 
+Menus
+-----
+The session window has a menu bar:
+
+    Session    Quit Session (also Esc, or close the window)
+    View       Both Screens / Top Screen Only (also Tab), Fullscreen (F11)
+    Controls   Controls Reference (also F1), Gamepad Mapping
+    Help       About
+
+The picker's "Screens" choice sets the layout the session opens in.
+
 Controls
 --------
     F5-F10   hold to peek at that player's touch screen
     Tab      top-screen-only / both-screens layout
-    mouse    taps go to the seat under the pointer
+    F1       list every keyboard key and pad button
+    mouse    click a tile to select it; a click on its screen is a touch
     Esc      closes the viewer, which ends the session
+
+Gamepad
+-------
+Left stick is the circle pad; the right stick walks the touch pointer and
+clicking it taps; a held left shoulder peeks at that seat's touch screen.
+Every other 3DS button is bound in Controls -> Gamepad Mapping: pick an
+action, press Change, then press the button on any pad. The mapping is saved
+in slots/pads.json and is shared by every pad in the session.
 
 Requirements
 ------------

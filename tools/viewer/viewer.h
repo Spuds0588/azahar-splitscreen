@@ -25,6 +25,7 @@
 
 class QPainter;
 
+#include <functional>
 #include <vector>
 
 /// What each tile shows. `Both` is the stacked pair (top over touch screen);
@@ -32,6 +33,20 @@ class QPainter;
 /// key shows their touch screen instead, the way the sister project's flip
 /// layout works.
 enum class View { Both, Top };
+
+/// One pad button and the key it forwards to the seat. `button` is an SDL
+/// controller button, or -1 when the player unbound it in the mapping dialog.
+struct PadKey {
+    int button;
+    quint32 key;
+    const char* name;
+};
+
+/// What the mapping dialog shows per action.
+struct PadAction {
+    QString name;
+    int button; // -1: unbound
+};
 
 /// One seat: its frame ring plus the socket its input goes to.
 struct Seat {
@@ -118,6 +133,21 @@ public:
         return selected_;
     }
 
+    /// The layout on screen now, so the View menu can put its check mark there.
+    View view() const {
+        return view_;
+    }
+
+    /// The pad mapping, for the Controls menu. One mapping is shared by every
+    /// pad in the session; it is saved beside the session's other state.
+    QVector<PadAction> pad_actions() const;
+    void set_pad_action(int index, int button);
+    void reset_pad_actions();
+    /// Send the next pad button press to `sink` instead of the seat, so the
+    /// mapping dialog can learn a binding without a second input stack.
+    void listen_for_pad_button(std::function<void(int)> sink);
+    void cancel_pad_listen();
+
     /// Initial layout; Tab switches it while the session runs. `persist` is
     /// false for a one-run override (`--view`), which must not become the next
     /// session's layout.
@@ -190,6 +220,8 @@ private:
     void toggle_view();
     void load_view();
     void save_view() const;
+    void load_pads();
+    void save_pads() const;
     /// Open the pads already attached and start polling for shoulder presses,
     /// including pads plugged in or pulled out while the session runs.
     void init_pads();
@@ -216,6 +248,9 @@ private:
 
     QVector<Seat> seats_;
     std::vector<Pad> pads_;
+    QVector<PadKey> pad_keys_;
+    QString pad_file_ = QStringLiteral("slots/pads.json");
+    std::function<void(int)> pad_listen_;
     int selected_ = 0;
     bool dragging_ = false;
     View view_ = View::Both;

@@ -106,6 +106,21 @@
       </div>
     </section>
 
+    <section class="saves">
+      <div>
+        <label for="screens">Screens</label>
+        <select id="screens">
+          <option value="auto" selected>Sized to the players</option>
+          <option value="both">Both screens for every player</option>
+          <option value="top">Top screen only</option>
+        </select>
+      </div>
+      <p class="hint" style="margin:0">
+        In the session: the View menu or Tab switches screens, F1 lists every control,
+        and Controls &rarr; Gamepad Mapping reassigns pad buttons.
+      </p>
+    </section>
+
     <div class="actions">
       <button id="start" class="primary">Start</button>
       <button id="stop" disabled>Stop</button>
@@ -124,6 +139,7 @@
       const status = document.getElementById("status");
       const pads = document.getElementById("pads");
       const log = document.getElementById("log");
+      const screens = document.getElementById("screens");
       const saveMode = document.getElementById("saveMode");
       const groupedRow = document.getElementById("groupedRow");
       const seatRows = document.getElementById("seatRows");
@@ -186,6 +202,7 @@
             saveMode: saveMode.value,
             saveGrouped: saveGrouped.value,
             saveSeats,
+            view: screens.value === "auto" ? "" : screens.value,
           });
           status.textContent = summary;
         } catch (error) {

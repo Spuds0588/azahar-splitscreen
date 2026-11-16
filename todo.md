@@ -323,9 +323,10 @@ touch are playability polish and may slip to Milestone 4.
       (named shared memory, named pipes or loopback TCP for input, job objects or
       `TerminateProcess` for teardown) before it can be released. Linux and macOS x86_64 betas
       ship today.
-- [ ] **Controller-to-seat mapping**: pads are assigned to seats by connection order and the
-      buttons are fixed (verified in history (36)-(38)); there is no remap UI and a replug can
-      land on a different seat. Fine for a beta, open for a 1.0.
+- [ ] **Controller-to-seat mapping**: pads are still assigned to seats by connection order and
+      a replug can land on a different seat, so a couch cannot say "this pad is P3". The buttons
+      themselves are now remappable (Controls -> Gamepad Mapping, history (48)); what is missing
+      is a per-pad seat assignment, which needs a list in the picker or the session menu.
 - [ ] **Save states**: not implemented anywhere in the app - seats are headless and no
       save-state hotkey is forwarded. Save *data* sets are the supported management path.
 - [ ] **Save-set integrity**: after importing a set, MK7 says "The save data is corrupted

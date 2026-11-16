@@ -24,14 +24,7 @@ namespace {
 constexpr u32 CsndFramesBeforeDspIdle = 2;
 /// Max amount of CSND pending samples.
 constexpr std::size_t MaxCsndPendingSamples = samples_per_frame * 4;
-
-/// Set by `AudioCore::SetEffectsTilt` from the command line, before any sink exists.
-std::atomic<bool> effects_tilt{false};
 } // namespace
-
-void SetEffectsTilt(bool enable) {
-    effects_tilt = enable;
-}
 
 DspInterface::DspInterface(Core::System& system_) : system(system_) {}
 
@@ -44,7 +37,6 @@ void DspInterface::SetSink(AudioCore::SinkType sink_type, std::string_view audio
     sink = AudioCore::GetSinkDetails(sink_type).create_sink(audio_device);
     sink->SetCallback(
         [this](s16* buffer, std::size_t num_frames) { OutputCallback(buffer, num_frames); });
-    tilt.SetSampleRate(sink->GetNativeSampleRate());
     time_stretcher.SetOutputSampleRate(sink->GetNativeSampleRate());
 }
 
@@ -151,41 +143,6 @@ void DspInterface::DrainFifoBacklog(std::size_t num_frames) {
     backlog_window_frames = 0;
 }
 
-void DspInterface::EffectsTilt::SetSampleRate(unsigned rate) {
-    // Everything below this belongs to the music's body (and to engine rumble); effects keep
-    // content above it, so the other seats stay audible without dragging their music in.
-    constexpr float cutoff_hz = 300.0f;
-    constexpr float q = 0.70710678f;
-    constexpr float pi = 3.14159265358979f;
-    const float w0 = 2.0f * pi * cutoff_hz / static_cast<float>(rate);
-    const float cos_w0 = std::cos(w0);
-    const float alpha = std::sin(w0) / (2.0f * q);
-    const float a0 = 1.0f + alpha;
-    b0 = (1.0f + cos_w0) / (2.0f * a0);
-    b1 = -(1.0f + cos_w0) / a0;
-    b2 = b0;
-    a1 = -2.0f * cos_w0 / a0;
-    a2 = (1.0f - alpha) / a0;
-    x = {};
-    y = {};
-}
-
-void DspInterface::EffectsTilt::Process(s16* buffer, std::size_t frames) {
-    constexpr float gain = 0.5f; // -6 dB, so four consoles sum without running out of headroom
-    for (std::size_t i = 0; i < frames; i++) {
-        for (std::size_t c = 0; c < 2; c++) {
-            const float in = buffer[i * 2 + c] * gain;
-            const float out =
-                b0 * in + b1 * x[c][0] + b2 * x[c][1] - a1 * y[c][0] - a2 * y[c][1];
-            x[c][1] = x[c][0];
-            x[c][0] = in;
-            y[c][1] = y[c][0];
-            y[c][0] = out;
-            buffer[i * 2 + c] = static_cast<s16>(std::clamp(out, -32768.0f, 32767.0f));
-        }
-    }
-}
-
 void DspInterface::OutputCallback(s16* buffer, std::size_t num_frames) {
     // Determine if we should stretch based on the current emulation speed.
     // TODO: Only activate audio stretching when emulation speed goes below 95% threshold
@@ -235,9 +192,6 @@ void DspInterface::OutputCallback(s16* buffer, std::size_t num_frames) {
         }
     }
 
-    if (effects_tilt) {
-        tilt.Process(buffer, num_frames);
-    }
 }
 
 } // namespace AudioCore

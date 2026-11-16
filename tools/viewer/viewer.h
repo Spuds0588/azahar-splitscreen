@@ -199,6 +199,10 @@ private:
     bool event(QEvent* event) override;
     /// "P1".."P4" in a small translucent tag, so a couch can tell the seats apart.
     void draw_badge(QPainter& painter, int index) const;
+
+    /// mgba-splitscreen's per-player identity: a colored inset outline around the
+    /// tile, matching the color of its P-number badge.
+    void draw_outline(QPainter& painter, int index) const;
     /// Re-read the seat's restart marker; true while the orchestrator restarts it.
     void refresh_restart(int index);
     /// "P2 restarting…" across a tile that is about to go blank, so the couch

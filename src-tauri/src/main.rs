@@ -1,4 +1,4 @@
-// Azahar Splitscreen orchestrator: pick a ROM, pick 2-4 players, start a
+// Azahar Splitscreen orchestrator: pick a ROM, pick 2-6 players, start a
 // loopback room plus one tiled Azahar instance per seat.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -54,7 +54,7 @@ fn start_session(
     let mut notice = state.notice.lock().map_err(|e| e.to_string())?;
     close_notice(&mut notice);
     let mode = mode_from_picker(&save_mode, &save_grouped, &save_seats)?;
-    let session = match process::start(&rom, players.clamp(2, 4), width, height, &mode) {
+    let session = match process::start(&rom, players.clamp(2, 6), width, height, &mode) {
         Ok(session) => session,
         Err(error) => {
             // Nothing booted: put the reason on the TV, not only in the picker.
@@ -190,7 +190,7 @@ fn run_headless(rom: &str, players: u8, saves_mode: saves::Mode) -> ! {
         libc::signal(libc::SIGINT, on_terminate as libc::sighandler_t);
         libc::signal(libc::SIGTERM, on_terminate as libc::sighandler_t);
     }
-    let mut session = match process::start(rom, players.clamp(2, 4), 1920, 1080, &saves_mode) {
+    let mut session = match process::start(rom, players.clamp(2, 6), 1920, 1080, &saves_mode) {
         Ok(session) => session,
         Err(error) => {
             eprintln!("{error}");
@@ -260,7 +260,7 @@ fn main() {
         let rom = args.get(position + 1).cloned().unwrap_or_default();
         if rom.is_empty() {
             eprintln!(
-                "usage: azahar-splitscreen --start <rom> [--players 2-4] \
+                "usage: azahar-splitscreen --start <rom> [--players 2-6] \
                  [--saves <dir>] [--import <seat>=<dir>]"
             );
             std::process::exit(1);

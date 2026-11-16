@@ -23,12 +23,16 @@ pub fn prepare(root: &Path, players: u8) -> io::Result<Vec<Slot>> {
         // smaller on a TV but makes Monster Hunter Stories abort with a system
         // error dialog; the instance must also keep running unfocused.
         //
-        // Audio: every seat feeds the one device. Seat 1 owns the music; the others
-        // are started with `--effects-tilt` (high-pass and -6 dB in the audio core), so
-        // their effects still reach the couch without four copies of the same track
-        // piling up. `volume` is the console's own volume register, so all seats keep
-        // it at 1 and the trim happens on the host side.
-        let audio = "[Audio]\nvolume=1\n";
+        // Audio: seat 1 owns the one device; every other seat uses Azahar's null sink
+        // (`SinkType::Null`, 1 in `src/audio_core/sink_details.h`), so it opens no stream
+        // and the room hears one copy of the music instead of six drifting copies.
+        // `volume` is the console's own volume register, so it stays at 1 everywhere: this
+        // is a device choice, not a volume trick.
+        let audio = if seat == 0 {
+            "[Audio]\nvolume=1\n".to_string()
+        } else {
+            "[Audio]\nvolume=1\noutput_type=1\n".to_string()
+        };
         let config = format!(
             "[Layout]\nlayout_option=0\n\n[UI]\npause_when_in_background=false\n\n{audio}"
         );

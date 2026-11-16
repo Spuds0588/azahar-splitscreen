@@ -292,9 +292,10 @@ pub fn start(
     // The seats no longer own windows, so the grid is only what the viewer
     // draws; log it so a session's shape is in the log next to the fps lines.
     let rects = layout::tiles(players, width, height);
+    let (cols, rows) = layout::grid(players);
     let grid = rects
         .first()
-        .map(|r| format!("{}x{} cells of {}x{}", 2, if players <= 2 { 1 } else { 2 }, r.width, r.height))
+        .map(|r| format!("{cols}x{rows} cells of {}x{}", r.width, r.height))
         .unwrap_or_default();
     log(&log_path, &format!("viewer grid: {grid}"));
 
@@ -334,10 +335,6 @@ pub fn start(
                 .display()
                 .to_string(),
         ];
-        if seat > 0 {
-            // Not the music owner: high-pass and trim, so effects carry without the track.
-            args.push("--effects-tilt".into());
-        }
         // The ROM path has to stay the last argument.
         args.push(rom_path.display().to_string());
         match spawn(&bin, &args, &root, &instance_log) {

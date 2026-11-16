@@ -28,13 +28,6 @@ namespace AudioCore {
 class Sink;
 enum class SinkType : u32;
 
-/**
- * The couch mix: a seat that does not own the music gets its output high-passed and trimmed, so
- * the same track from several consoles does not pile up while their effects still carry. Set from
- * the command line before emulation starts; read by every sink callback in this process.
- */
-void SetEffectsTilt(bool enable);
-
 class DspInterface {
 public:
     DspInterface(Core::System& system_);
@@ -141,19 +134,6 @@ private:
     std::size_t backlog_window_frames = 0;
     TimeStretcher time_stretcher;
     std::unique_ptr<Sink> sink;
-
-    /// The filter behind `SetEffectsTilt`: a 2nd-order Butterworth high-pass at 300 Hz plus a
-    /// -6 dB trim, run on the sink's frames after the volume slider.
-    struct EffectsTilt {
-        void SetSampleRate(unsigned rate);
-        void Process(s16* buffer, std::size_t frames);
-
-        float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;   // feed-forward
-        float a1 = 0.0f, a2 = 0.0f;              // feedback, a0 normalised out
-        std::array<std::array<float, 2>, 2> x{}; // per channel: in[n], in[n-1]
-        std::array<std::array<float, 2>, 2> y{}; // per channel: out[n], out[n-1]
-    };
-    EffectsTilt tilt;
 
     std::mutex csnd_mutex;
     StereoBuffer16 csnd_pending;

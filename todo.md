@@ -179,6 +179,19 @@ touch are playability polish and may slip to Milestone 4.
       exits). Verified in one app-driven run: one window, 60 fps both seats, both streams on
       the sink, and the window-close quit left nothing behind. History (42),
       `docs/evidence/app-one-window.txt`.
+- [x] **Colored player outlines** (2026-11-16): the viewer copies mgba-splitscreen's rule - a
+      3 px inset outline on each tile in the player's color plus a badge in the same color
+      (P1 red, P2 blue, P3 green, P4 orange from its palette; purple and cyan for seats 5-6).
+      History (43), `docs/evidence/six-top-only.png`.
+- [x] **Six players** (2026-11-16): `layout::grid` is 2x1 / 2x2 / 3x2, the clamp is 2..6 and
+      the picker offers 2-6. Six live MK7 seats in one window, 60 fps each, load 8.7 on 8
+      threads and 8 of 15 GiB. History (43), `docs/evidence/six-seat-top-only.txt`.
+- [x] **Top screen only for 3+ seats** (2026-11-16): three or more seats open in top-screen
+      mode, with each seat's peek on F5-F10 to reveal its touch screen; two seats still show
+      both screens. Verified in a six-seat run plus a two-seat check. History (43).
+- [x] **Audio: player 1 only, restored** (2026-11-16): seats 2+ use the null sink
+      (`[Audio] output_type=1`), so a six-seat session opens exactly one stream, and the
+      `--effects-tilt` flag and its DSP filter are deleted from the fork. History (43).
 - [x] **P3 follow-up — touch proven**: a tap at frame (440,195) on seat A's
       bottom screen took seat A from MK7's title into a single-player race
       (change 166/255) while seat B stayed at the title (0.01–0.04). Two bugs
@@ -266,6 +279,7 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **Audio: player 1 only** (2026-11-15): seat 1 keeps the default output, seats 2-4 are
       muted onto the null sink (`@Variant` escaped ulong, because `output_type` is read as
       `u32`), so a 4-player session opens exactly one audio stream. History (36).
+      (Replaced by the effects tilt in (40), restored in (43) with plain `output_type=1`.)
 - [x] **In-game pad verification** (2026-11-15): the seat's own pad moved Mario Kart 7's
       main-menu selection (89,284 px against 5,172 idle) while the other pad's identical
       press moved it 6,513 px, and the same held for a second title (Monster Hunter Stories:
@@ -337,7 +351,6 @@ touch are playability polish and may slip to Milestone 4.
 - A custom link/sync layer (Azahar's room is the link layer).
 - An SDL/lightweight frontend (does not exist in this tree).
 - Per-game fix registry, cheat/ mod support, video recording.
-- More than 4 players.
 - Mobile/Android front end.
 
 ## Backlog (only if the owner asks)

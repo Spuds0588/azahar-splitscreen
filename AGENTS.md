@@ -26,7 +26,7 @@
 ## What this project is
 
 **azahar-splitscreen** is a couch split-screen front end for Nintendo 3DS
-multiplayer: 2–4 **pre-linked Azahar instances**, each in its own borderless
+multiplayer: 2–6 **pre-linked Azahar instances**, each in its own borderless
 window, tiled into one TV-sized layout and joined to a loopback `azahar-room`
 session, with a Tauri v2 orchestrator doing ROM selection, controller
 assignment, slot isolation, spawning and teardown.
@@ -87,7 +87,7 @@ src-tauri/
   src/lib.rs         # commands + app state
   src/controllers.rs # gamepad enumeration/mapping (via the Azahar binary, not a new SDL stack)
   src/slots.rs       # per-slot user dir, unique identity, save cloning
-  src/layout.rs      # monitor work area -> 2x1 / 2x2 rect math
+  src/layout.rs      # monitor work area -> 2x1 / 2x2 / 3x2 rect math
   src/process.rs     # azahar-room + staggered Azahar spawn + cleanup
   binaries/          # sidecar azahar / azahar-room builds
 patches/             # tracked git patches for the Azahar fork
@@ -140,7 +140,7 @@ ninja -C build -j 4          # -j4 keeps the link step inside this box's RAM
 
 # the MVP: orchestrator (needs both Release binaries above)
 cd src-tauri && cargo build --release && ./target/release/azahar-splitscreen
-# pick a ROM, players 2-4, Start. Slots/logs land in slots/.
+# pick a ROM, players 2-6, Start. Slots/logs land in slots/.
 ```
 
 One instance by hand, in its own slot, already joined to a room:

@@ -1,4 +1,5 @@
-//! Window tiling math. 2 players share one row, 3-4 players use a 2x2 grid.
+//! Window tiling math. 2 players share one row, 3-4 players use a 2x2 grid,
+//! 5-6 a 3x2 one (Mario Kart 7 seats up to six consoles).
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rect {
@@ -8,12 +9,20 @@ pub struct Rect {
     pub height: i32,
 }
 
+/// Columns and rows a player count is arranged in.
+pub fn grid(players: u8) -> (i32, i32) {
+    match players.clamp(2, 6) {
+        2 => (2, 1),
+        5 | 6 => (3, 2),
+        _ => (2, 2),
+    }
+}
+
 /// Returns one rect per player, in seat order, from a monitor work area.
 pub fn tiles(players: u8, width: i32, height: i32) -> Vec<Rect> {
     const GUTTER: i32 = 1;
-    let players = players.clamp(2, 4);
-    let cols = if players <= 2 { 2 } else { 2 };
-    let rows = if players <= 2 { 1 } else { 2 };
+    let players = players.clamp(2, 6);
+    let (cols, rows) = grid(players);
     let cell_w = (width - GUTTER * (cols - 1)) / cols;
     let cell_h = (height - GUTTER * (rows - 1)) / rows;
 
@@ -53,5 +62,13 @@ mod tests {
     #[test]
     fn three_players_leave_the_last_cell_empty() {
         assert_eq!(tiles(3, 1920, 1080).len(), 3);
+    }
+
+    #[test]
+    fn six_players_use_three_columns() {
+        let rects = tiles(6, 1920, 1080);
+        assert_eq!(rects.len(), 6);
+        assert_eq!(grid(6), (3, 2));
+        assert_eq!(rects[5], Rect { x: 1280, y: 540, width: 639, height: 539 });
     }
 }

@@ -1819,3 +1819,44 @@ Mario Kart 7 picked in the window, Players left at 2, Start clicked in that wind
 
 The launcher-behind-session caveat in (41) is gone. The mix still reaches full scale with two
 consoles at the owner's 0.75 sink volume; that headroom work was out of scope here.
+## 2026-11-16 (43) - Six seats, one screen each, one voice
+
+Three things changed together because each changes what the others look like: player identity
+colors, a six-seat layout, and a single audio owner.
+
+**Colored outlines, taken from mgba-splitscreen.** Its libretro core marks each player with a
+3 px inset outline in a per-player color plus a matching P-number badge
+(`src/platform/libretro-splitscreen/instances.c`, palette from its `styles.css`: P1 `#ff4444`,
+P2 `#4488ff`, P3 `#2eaa44`, P4 `#e08a1e`). The viewer now does the same: a 3 px edge inset in
+the cell's own boundary, the badge filled in the same color, and two extra colors for seats
+five and six (`#9b5cff`, `#24c8db`). The outline is painted after the picture, so it holds for
+any layout and for a letterboxed screen, and the boot placeholder tile uses it too instead of
+a fixed red border.
+
+**Six players.** `layout::grid` is 2x1 for two, 2x2 for three or four, 3x2 for five or six; the
+clamp is 2..6 and the picker offers 2-6. Verified with six live MK7 seats in one window:
+`players: 6`, `viewer grid: 3x2 cells of 639x516`, all six at `fps=60.0 speed≈100.3`
+(frame 4.9-8.2 ms), load average 8.7 on 8 threads and 8 of 15 GiB in use, so six is within
+this box's reach but at its edge.
+
+**Top screen only for three or more.** A 3+ seat session opens in `View::Top` instead of
+stacked screens: the tile is the action screen, and each seat's peek key - now F5-F10 so six
+players each have one - reveals that seat's touch screen while held. Verified:
+`viewer: no pads attached, F5-F10 peek for seats 1-6`, F6 logged `P2 peeking at the touch
+screen` followed by `back to the top screen`, and `docs/evidence/six-top-only.png` is the
+window with six single-screen tiles. Two seats are deliberately unchanged (both screens);
+re-checked in a 2-seat run so the new default could not leak into it.
+
+**One voice.** The effects-tilt experiment is deleted, not tuned: seats 2+ now use Azahar's
+own null sink (`[Audio] output_type=1`, `SinkType::Null`), so they open no device stream at
+all, and `--effects-tilt`, its argument parsing and the DSP filter are gone from the fork -
+which also shrinks the fork diff. A six-seat session now opens exactly one audio stream, from
+`slots/p1` (node 91, pid 55137); the 2-seat run also opened one. Overlapping music is what
+the earlier mix tried to solve and what a single owner removes outright.
+
+**Quit stayed clean:** closing the session window after the six-seat run left no orchestrator,
+room, seat, emulator or viewer process, no `/dev/shm/azsh-*` and no audio streams.
+
+Question answered along the way: save states are not a feature of this app (it manages save
+*data* sets), and gamepad input is working but only for pads that are attached - the picker
+reported "Gamepads: none detected" in these runs.

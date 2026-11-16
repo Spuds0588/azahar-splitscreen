@@ -1,0 +1,59 @@
+Six seats, top screen only, and one audio stream
+===============================================
+
+Six-player session (2026-11-16, MK7)
+------------------------------------
+Launched from the repo root with no arguments, Mario Kart 7 picked in the window, Players set
+to 6, Start pressed in the window. All three binaries rebuilt first.
+
+    slots/session.log:  players: 6, area: 1920x1034
+                        room: 127.0.0.1:34999
+                        viewer grid: 3x2 cells of 639x516
+    wmctrl -l:          one Azahar Splitscreen window (0x0300000d), the picker hidden
+
+Frame rate, sampled ~190 s after Start (MK7 spends ~90-120 s on its network boot):
+
+    Player 1: fps=60.0 speed=100.2 frame_ms=4.88
+    Player 2: fps=60.0 speed=100.3 frame_ms=6.64
+    Player 3: fps=60.0 speed=100.2 frame_ms=7.52
+    Player 4: fps=60.0 speed=100.3 frame_ms=8.19
+    Player 5: fps=60.0 speed=100.3 frame_ms=6.39
+    Player 6: fps=60.0 speed=100.3 frame_ms=6.65
+
+Cost on this box: load average 8.7 on 8 threads, 8 of 15 GiB in use, viewer at
+`presented_fps≈62.5, paint_ms≈8`.
+
+Top screen only, with peek
+--------------------------
+`docs/evidence/six-top-only.png` is that window: six tiles, each the game's top screen, each
+with its player's color on the cell edge and on the P-number badge (P1 red, P2 blue, P3 green,
+P4 orange, P5 purple, P6 cyan - the first four are mgba-splitscreen's palette).
+
+The viewer log for that session:
+
+    viewer: no pads attached, F5-F10 peek for seats 1-6
+    (F6 sent to the window) viewer: P2 peeking at the touch screen
+                            viewer: P2 back to the top screen
+
+Audio: exactly one stream
+-------------------------
+    pw-dump: ONE Stream/Output/Audio node - id 91, pid 55137
+    pid 55137 -> slots/p1/user
+
+Seats 2-6 run with `[Audio] output_type=1` (Azahar's null sink, `SinkType::Null`), so they open
+no device stream; none of the six seats has `--effects-tilt` any more, because the tilt filter
+was deleted from the fork. During the earlier 2-stream experiment the same check listed six
+streams, so the count is the difference the change makes.
+
+Quit
+----
+`wmctrl -ic 0x0300000d` (closing the session window): 12 s later no orchestrator, room, seat,
+emulator or viewer process, `ls /dev/shm/azsh-*` empty, zero audio streams, one window left
+(the user's own).
+
+Two-seat regression check
+-------------------------
+Same app-driven start, Players left at 2: `players: 2`, `viewer grid: 2x1 cells of 959x1034`,
+both screens stacked per seat (`docs/evidence/two-seat-both-screens.png`), one audio stream
+(node 91, `slots/p1`), and closing the window left nothing behind. So the top-screen-only
+default applies to three or more seats and two seats are unchanged.

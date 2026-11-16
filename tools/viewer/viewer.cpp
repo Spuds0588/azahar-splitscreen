@@ -55,8 +55,9 @@ static_assert(sizeof(InputMessage) == 12, "input message must stay 12 bytes");
 
 /// Each player's hold-to-peek key, in seat order. Function keys so they sit
 /// well outside the 3DS button keymap: a peek never shadows a game binding, and
-/// four players can peek without borrowing a letter key from each other.
-constexpr int kPeekKeys[] = {Qt::Key_F5, Qt::Key_F6, Qt::Key_F7, Qt::Key_F8};
+/// six players can peek without borrowing a letter key from each other.
+constexpr int kPeekKeys[] = {Qt::Key_F5, Qt::Key_F6, Qt::Key_F7,
+                             Qt::Key_F8, Qt::Key_F9, Qt::Key_F10};
 
 /// A pad button and the Qt key the seat's input profile binds it to. The codes
 /// mirror the `[Controls]` defaults Azahar writes for a fresh user dir (A=65,
@@ -117,6 +118,9 @@ Viewer::Viewer(QVector<Seat> seats, const QString& message, QWidget* parent)
     if (!message_.isEmpty()) {
         return; // a notice paints once and waits for Esc; nothing to poll
     }
+    // Three or more seats: the tile is the action screen and a peek reveals the
+    // touch screen. Two seats have the room to show both at once.
+    view_ = seats_.size() >= 3 ? View::Top : View::Both;
     setCursor(Qt::BlankCursor);
 
     // Paint on our own clock at roughly 60 Hz. The swap interval paces a healthy
@@ -320,7 +324,8 @@ QRect Viewer::tile_rect(int index) const {
     if (count <= 0) {
         return {};
     }
-    const int columns = count >= 3 ? 2 : count;
+    // 2 share a row, 3-4 a 2x2 grid, 5-6 three columns wide.
+    const int columns = count >= 5 ? 3 : (count >= 3 ? 2 : count);
     const int rows = (count + columns - 1) / columns;
     const int cell_width = width() / columns;
     const int cell_height = height() / rows;
@@ -371,10 +376,9 @@ void Viewer::paintEvent(QPaintEvent*) {
 
         const QRect tile = tile_rect(i);
         if (seat.fd < 0) {
-            // No frames yet (still booting): a dim tile with a red border.
+            // No frames yet (still booting): a dim tile in the player's color.
             painter.fillRect(tile, QColor(26, 13, 13));
-            painter.setPen(QColor(180, 40, 40));
-            painter.drawRect(tile.adjusted(0, 0, -1, -1));
+            draw_outline(painter, i);
             draw_restart_chip(painter, i);
             continue;
         }
@@ -388,6 +392,7 @@ void Viewer::paintEvent(QPaintEvent*) {
         if (i == selected_) {
             draw_pointer(painter, i);
         }
+        draw_outline(painter, i);
         draw_badge(painter, i);
         draw_restart_chip(painter, i);
     }
@@ -400,10 +405,42 @@ void Viewer::paintEvent(QPaintEvent*) {
     log_stats();
 }
 
+/// The player's identity color, from mgba-splitscreen's palette (`styles.css`):
+/// P1 red, P2 blue, P3 green, P4 orange. Purple and cyan extend it for the
+/// fifth and sixth seat.
+static QColor player_color(int index) {
+    static const QColor palette[] = {
+        {0xff, 0x44, 0x44}, {0x44, 0x88, 0xff}, {0x2e, 0xaa, 0x44},
+        {0xe0, 0x8a, 0x1e}, {0x9b, 0x5c, 0xff}, {0x24, 0xc8, 0xdb},
+    };
+    return palette[index % 6];
+}
+
+/// mgba-splitscreen's outline rule: the player's color drawn three pixels inset
+/// from the cell's own edge, after the picture, so it survives any layout at any
+/// scale - a letterboxed portrait screen gets its whole cell outlined, and nothing
+/// depends on the picture's size.
+void Viewer::draw_outline(QPainter& painter, int index) const {
+    const QRect cell = tile_rect(index);
+    if (cell.isEmpty()) {
+        return;
+    }
+    const int edge = 3;
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, false);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(player_color(index));
+    painter.drawRect(QRect(cell.left(), cell.top(), cell.width(), edge));
+    painter.drawRect(QRect(cell.left(), cell.bottom() - edge + 1, cell.width(), edge));
+    painter.drawRect(QRect(cell.left(), cell.top(), edge, cell.height()));
+    painter.drawRect(QRect(cell.right() - edge + 1, cell.top(), edge, cell.height()));
+    painter.restore();
+}
+
 /// A small tag in the tile's corner: the letterbox margin when the frame does not
 /// fill the tile (a 400x480 screen), so nothing of the game is covered, and the
-/// picture's own corner when it does. Translucent, so even then the game shows
-/// through it.
+/// picture's own corner when it does. Filled in the player's color, like
+/// mgba-splitscreen's player tag, so the tag and the outline name the same seat.
 void Viewer::draw_badge(QPainter& painter, int index) const {
     const QRect tile = tile_rect(index);
     const QRect image = image_rect(index);
@@ -428,10 +465,10 @@ void Viewer::draw_badge(QPainter& painter, int index) const {
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setFont(font);
-    painter.setPen(QPen(QColor(242, 242, 242, 110), 1));
-    painter.setBrush(QColor(18, 18, 24, 200));
+    painter.setPen(QPen(QColor(0, 0, 0, 90), 1));
+    painter.setBrush(player_color(index));
     painter.drawRoundedRect(box, pad, pad);
-    painter.setPen(QColor(242, 242, 242));
+    painter.setPen(QColor(255, 255, 255));
     painter.drawText(box, Qt::AlignCenter, label);
     painter.restore();
 }
@@ -817,6 +854,11 @@ void Viewer::load_view() {
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         return;
     }
+    // Three or more seats are top-screen-only by design; a saved layout from a
+    // two-seat session must not open them stacked.
+    if (seats_.size() >= 3) {
+        return;
+    }
     const QString saved = QString::fromUtf8(file.readLine(32)).trimmed();
     if (saved == QLatin1String("top")) {
         view_ = View::Top;
@@ -844,7 +886,7 @@ void Viewer::save_view() const {
 /// A held peek key belongs to its own seat, whichever seat has the keyboard.
 bool Viewer::handle_peek(int key, bool press) {
     const int seats = static_cast<int>(seats_.size());
-    for (int seat = 0; seat < seats && seat < 4; ++seat) {
+    for (int seat = 0; seat < seats && seat < static_cast<int>(std::size(kPeekKeys)); ++seat) {
         if (key != kPeekKeys[seat]) {
             continue;
         }
@@ -896,7 +938,8 @@ void Viewer::init_pads() {
         add_pad(i);
     }
     if (pads_.empty()) {
-        log(QStringLiteral("viewer: no pads attached, F5-F8 peek for seats 1-%1")
+        log(QStringLiteral("viewer: no pads attached, F5-F%1 peek for seats 1-%2")
+                .arg(4 + static_cast<int>(seats_.size()))
                 .arg(seats_.size()));
     }
     // The frame timer is the pace of this window, so polling pads twice per frame

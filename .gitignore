@@ -91,3 +91,6 @@ Test Roms/
 
 # QA-only pad injector binary
 /tools/qa/virtual_pads
+
+# beta bundles built by packaging/pack.sh
+out/

@@ -89,6 +89,20 @@ QA/terminal path (same session, no picker, foreground, `Ctrl-C` or close the win
 
 Slots, save sets, per-seat fps and logs land in `slots/`.
 
+## Beta downloads
+
+Tagged builds are produced by `.github/workflows/release.yml` and attached to a pre-release:
+
+- **Linux x86_64** — `azahar-splitscreen-<tag>-linux-x86_64.tar.gz`
+- **macOS Intel (x86_64)** — `azahar-splitscreen-<tag>-macos-x86_64.tar.gz` (the macOS job pins
+  `CMAKE_OSX_ARCHITECTURES=x86_64` and the `x86_64-apple-darwin` Rust target, so the artifact is
+  Intel regardless of the runner; Apple Silicon runs it under Rosetta 2)
+
+Unpack, put dumps in `Test Roms/`, run `./run.sh`. Qt 6 and SDL2 must be installed, and
+`BETA.txt` in the bundle lists the controls and every known limit. **There is no Windows
+artifact**: the frame ring is POSIX shared memory and the orchestrator uses Unix process
+control, so Windows needs a port first.
+
 ## Status
 
 Verified on this dev box (Linux, Wayland/XWayland, 15 GiB RAM, 8 threads), all from real
@@ -116,6 +130,8 @@ Known limits, stated plainly:
   system volume.
 - In-process seats (one process, N cores) were investigated and rejected — see
   `plans/in-process-seats.md`.
+- **Platforms:** Linux x86_64 and macOS x86_64 only; Windows is not supported yet (POSIX
+  shared-memory ring, `setsid`/`kill` process control and Unix sockets would all need ports).
 
 ## Documentation map
 

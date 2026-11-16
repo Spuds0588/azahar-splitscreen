@@ -1,0 +1,48 @@
+Azahar Splitscreen - beta
+=========================
+
+Couch split-screen for Nintendo 3DS local multiplayer: 2-6 consoles, one window.
+
+This is an early beta. It runs, and it has been verified end to end on the
+machine it was developed on, but it is not a polished release.
+
+Run it
+------
+    ./run.sh
+
+The picker opens. Choose a dump from "Test Roms" (put your own .3ds/.cci dumps
+there; none ship with this bundle), pick 2-6 players, press Start. The picker
+hides and one session window opens. Close that window to quit: the room, every
+seat and the viewer are torn down with it.
+
+Controls
+--------
+    F5-F10   hold to peek at that player's touch screen
+    Tab      top-screen-only / both-screens layout
+    mouse    taps go to the seat under the pointer
+    Esc      closes the viewer, which ends the session
+
+Requirements
+------------
+- Qt 6 (Widgets, OpenGLWidgets) and SDL2 installed on the system.
+  Linux: your distro's qt6-base and sdl2 packages.
+  macOS: `brew install qt sdl2` (Intel build; on Apple Silicon run it under
+  Rosetta 2).
+- A GPU with OpenGL 4.3 or Vulkan 1.1 support, as Azahar itself requires.
+
+Known limits (by design, not bugs)
+----------------------------------
+- Every seat in a session plays the same dump. Per-seat ROMs are not supported.
+- Save states are not implemented; save *data* sets are (one per player, one
+  shared set, or a per-seat import).
+- Gamepads are optional. When attached, each pad drives one seat; button
+  mapping is fixed and there is no remapping UI.
+- Three or more seats show the top screen only; two seats show both screens.
+- The 4-6 seat audio mix can reach full scale at the default system volume.
+- Verified with two bootable dumps (Mario Kart 7 and Monster Hunter Stories);
+  other titles are untested.
+- Linux and macOS only: the shared-memory frame path is POSIX, so there is no
+  Windows build yet.
+
+Not affiliated with or endorsed by Nintendo. No ROMs, keys or NAND dumps are
+included.

@@ -1919,3 +1919,37 @@ took the room, both seats and the viewer with it - no processes, no rings, no st
   behaviour.
 
 `cargo build --release` and `cargo test --release` pass on the final tree.
+## 2026-11-16 (46) - Loose ends audited, beta bundles built
+
+**The audit** (controllers, save states, usability), checked against the code rather than the
+notes:
+
+- **Controllers** are real and verified: pads are opened through SDL, each pad owns a seat,
+  buttons go through forwarded keys, sticks through the type-6 datagram, peek on the left
+  shoulder, and the picker lists what the kernel exposes (history (36)-(38)). The open ends are
+  product, not bugs: assignment is by connection order, there is no remap UI, and a replug can
+  land on a different seat. Recorded in `todo.md` for a 1.0 rather than rushed into the beta.
+- **Save states** were never implemented and nothing claims otherwise: the app manages save
+  *data* sets (keep / grouped / per-seat import) and the seats are headless, so Azahar's own
+  save-state hotkeys are not forwarded. Added as an explicit todo line so the gap is stated
+  once, not rediscovered.
+- **Usability** found one real hole: if `tools/viewer/build/azahar-viewer` was missing, the
+  start succeeded, the picker hid, and the player was left with no window at all. `start()` now
+  fails that start, tears the seats and room down and says to build the viewer.
+- **Platform** is the other limit: the frame ring is `shm_open`/`mmap` and the orchestrator uses
+  `setsid`, `kill` and Unix sockets, so there is no Windows build without a port. Recorded in
+  `README.md` and `todo.md` instead of shipping an artifact that cannot run a session.
+
+**Beta bundles.** `packaging/pack.sh` assembles a runnable tree - emulator, `azahar-room`, the
+viewer, the orchestrator in the paths the app resolves, an empty `Test Roms/`, a `BETA.txt`
+and a `run.sh` that pins `AZAHAR_SPLITS_ROOT` so the bundle runs from anywhere. Verified by
+unpacking it outside the repo: the picker listed the symlinked dumps, Start opened one window,
+both seats held `fps=60.0 speed≈100.3` with the viewer at `presented_fps=62.5`, and closing the
+window left nothing behind (0 windows, 0 rings).
+
+**Release CI.** `.github/workflows/release.yml` builds on tags: `emulator-linux` in upstream's
+build container, `app-linux` on ubuntu-24.04 with the viewer and Tauri dependencies, and
+`app-macos` on an Intel runner with `CMAKE_OSX_ARCHITECTURES=x86_64` plus the
+`x86_64-apple-darwin` Rust target - the Intel flag, stated where it belongs. Both bundles are
+attached to a pre-release by the `release` job. Only Linux x86_64 and macOS x86_64 artifacts are
+produced, for the platform reason above.

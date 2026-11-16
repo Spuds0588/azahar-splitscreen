@@ -375,14 +375,27 @@ pub fn start(
         return Err(message);
     }
 
-    let viewer = spawn_viewer(&root, &session_dir, &rings, &sockets, &instance_logs);
-    match &viewer {
-        Some(_) => log(&log_path, "viewer: one window compositing all seats"),
-        None => log(
-            &log_path,
-            "viewer: tools/viewer/build/azahar-viewer is missing, seats are headless",
-        ),
-    }
+    // Without the viewer there is no window at all - and the picker hides on a
+    // successful start - so a missing viewer has to fail the start, not open a
+    // session nobody can see.
+    let viewer = match spawn_viewer(&root, &session_dir, &rings, &sockets, &instance_logs) {
+        Some(viewer) => {
+            log(&log_path, "viewer: one window compositing all seats");
+            Some(viewer)
+        }
+        None => {
+            for child in &mut instances {
+                terminate(child);
+            }
+            terminate(&mut room);
+            cleanup_artifacts(&rings, &sockets);
+            return Err(
+                "the one-window viewer is missing: build it with \
+                 `ninja -C tools/viewer/build` (or use a packaged build)"
+                    .to_string(),
+            );
+        }
+    };
 
     // A fresh slot has no extdata for the game yet, so the 3DS stops on "No
     // extra data found. New extra data will be created." and waits for a tap

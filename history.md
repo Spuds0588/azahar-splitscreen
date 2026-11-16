@@ -1752,3 +1752,38 @@ consoles at this trim can clip at full volume); the trim and cutoff are constant
 setting; and the tilt is still an EQ guess - the other seats keep their melody and cymbals
 above 300 Hz and lose engine rumble, because a real split needs per-console access inside the
 DSP.
+## 2026-11-16 (41) - One launch, one window, and nothing left behind
+
+Every earlier session in this log was started from a terminal (`run.sh --start`), so nobody
+had yet proved the app a user actually launches: the window, its picker, and its own quit.
+This pass did that and needed no repair - it worked on the first attempt.
+
+**The run.** All three binaries rebuilt first. Then
+`DISPLAY=:1 ./src-tauri/target/release/azahar-splitscreen` with no arguments, Mario Kart 7
+chosen in the Game dropdown and Players left at 2, Start clicked in the window. From that one
+click the orchestrator opened the room, spawned two headless seats with their rings and
+sockets, and started the viewer: `slots/session.log` lists
+`area: 1920x1034`, `room: 127.0.0.1:47207`, `azsh-35570-1/2` and
+`viewer: one window compositing all seats`. No second session, scratch console or `--start`
+was used at any point.
+
+**Rendering.** 140 s after Start (after MK7's ~90-120 s network boot) both seats read
+`fps=60.0`, `speed≈100`, `frame_ms≈4.9`, and `docs/evidence/app-session-window.png` shows P1
+and P2 side by side at the game's main menu inside that single composite window.
+
+**Audio.** Two output streams, one per seat process, both on the default sink -
+node 77 from pid 36126 (`slots/p1/user`, no flag) and node 79 from pid 36210
+(`slots/p2/user`, `--effects-tilt`). The sink monitor read L -12.4 dBFS across 8.98 s of the
+menu. Worth noting for later: the peak hit full scale with two consoles at the owner's 0.75
+sink volume, which is the four-seat headroom question this pass was told not to chase.
+
+**The quit.** Closing the app window (`wmctrl -ic` on the picker window) is the app's quit:
+the close handler drops the session, which terminates the room, every seat and the viewer,
+then exits. Eight seconds later `pgrep` found no orchestrator, room, seat, emulator or viewer;
+`/dev/shm/azsh-*` was empty and PipeWire had no `Stream/Output/Audio` nodes. The shared-memory
+rings are released by the same teardown.
+
+**Observed, kept as-is:** the launcher window stays open behind the session window (the
+viewer covers the work area) and closing it is the quit path - it is not hidden on Start. And
+the one sink is fed by two streams rather than one process mixing, because each seat renders
+its own audio and the device sums them.

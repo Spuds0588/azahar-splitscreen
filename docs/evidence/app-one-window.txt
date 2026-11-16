@@ -1,0 +1,74 @@
+One launch, one window: start, run and stop a two-seat session from the app
+==========================================================================
+
+What was run (2026-11-16)
+-------------------------
+All three binaries were rebuilt first (`ninja -C tools/viewer/build`,
+`cmake --build build --target azahar`, `cargo build --release`, all exit 0), then the app was
+started the way a user starts it, from the repo root:
+
+    DISPLAY=:1 ./src-tauri/target/release/azahar-splitscreen          # no arguments
+
+No `--start`, no second session and no scratch console were used at any point in this run.
+
+The window (0x01600003, 900x640 at +509+211) showed the picker with the ROM list from
+`Test Roms/`. Mario Kart 7 was selected in the Game dropdown by typing into the native
+select, Players stayed at 2, and Start was clicked at window (232,270). Capture:
+`docs/evidence/app-picker.png`.
+
+What the one window did
+-----------------------
+`slots/session.log` after Start:
+
+    rom: .../Test Roms/Mario Kart 7 (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) Decrypted.3ds
+    players: 2, area: 1920x1034
+    room: 127.0.0.1:47207
+    room: open
+    viewer grid: 2x1 cells of 959x1034
+    Player 1: spawned headless, ring azsh-35570-1, socket .../Player 1.sock, ...
+    Player 2: spawned headless, ring azsh-35570-2, socket .../Player 2.sock, ...
+    viewer: one window compositing all seats
+
+Processes while running: orchestrator 35570, room 36122, seats 36126 and 36210, viewer
+36437; two rings `/dev/shm/azsh-35570-{1,2}`.
+
+Speed, sampled 140 s after Start (MK7 spends ~90-120 s on its network boot and ignores
+input there, so this is the main menu):
+
+    Player 1: fps=60.0 speed=100.3 frame_ms=4.91
+    Player 2: fps=60.0 speed=99.6  frame_ms=4.99
+
+`docs/evidence/app-session-window.png` is that window: P1 and P2 side by side, both at
+Mario Kart 7's main menu, in one 1920x1034 composite.
+
+Audio on the one output
+-----------------------
+Two streams on the default sink, one per seat, owned by that seat's process:
+
+    77 Azahar Output pid=36126 -> slots/p1/user   (no --effects-tilt)
+    79 Azahar Output pid=36210 -> slots/p2/user   (--effects-tilt)
+
+8.98 s of the sink monitor during the menu: L -12.4 dBFS, R -12.3 dBFS, peak 32768, with
+the sink at 0.75 (the owner's setting). The peak reaching full scale with two consoles
+mixed is real; the four-seat headroom question is out of scope for this pass.
+
+Quitting from the app
+---------------------
+The app window was closed with `wmctrl -ic 0x01600003` - an ordinary window close, which the
+orchestrator handles as quit (drop the session, which terminates the room, every seat and
+the viewer, then exit). Eight seconds later:
+
+    pgrep -af "azahar-splitscreen|azahar-room|azahar --user|azahar-viewer"   -> nothing
+    ls /dev/shm/azsh-*                                                       -> nothing (0)
+    PipeWire Stream/Output/Audio nodes                                       -> 0
+    wmctrl -l                                          -> only the user's own windows
+
+Nothing needed repairing: the single-window path started, ran and stopped the session on the
+first attempt.
+
+Observed, not changed
+---------------------
+- The launcher window stays open behind the session window (the viewer covers the work area,
+  1920x1034); closing it is the quit path. It is not hidden when the session starts.
+- Two streams feed the one sink rather than one process mixing: each seat renders its own
+  audio and the device sums them (the tilt is applied per seat in the audio core).

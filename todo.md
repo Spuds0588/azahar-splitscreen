@@ -166,6 +166,13 @@ touch are playability polish and may slip to Milestone 4.
       no `/dev/shm` object, no socket, no window). `tools/quadview` deleted.
 - [x] **P5 — measurement & docs** — `tools/qa/monitor.sh` samples the viewer
       (cpu/rss/presented fps) next to the seats. Numbers in `history.md` (12).
+- [x] **End-to-end from the app window** (2026-11-16): `azahar-splitscreen` launched with no
+      arguments, MK7 and 2 players picked in the window, Start pressed. Room, two headless
+      seats and the viewer came up from that one click; both seats held 60 fps into the one
+      composite window; both seats' audio was on the default sink (P2 through
+      `--effects-tilt`); closing the app window left zero orchestrator/room/seat/emulator/
+      viewer processes, zero rings and zero audio streams. History (41),
+      `docs/evidence/app-one-window.txt`.
 - [x] **P3 follow-up — touch proven**: a tap at frame (440,195) on seat A's
       bottom screen took seat A from MK7's title into a single-player race
       (change 166/255) while seat B stayed at the title (0.01–0.04). Two bugs

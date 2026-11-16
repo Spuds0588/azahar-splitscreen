@@ -1,6 +1,10 @@
 Shared audio: player 1's console, measured
 ==========================================
 
+Policy note: this file records the player-1-only policy of 2026-11-15. The owner
+changed it on 2026-11-16 to an effects-tilted mix (every seat on the one output, seats
+2-4 high-passed and trimmed); see `effects-tilt.txt`.
+
 Policy (owner's decision, 2026-11-15): the session's single audio output is player 1's
 console. Seats 2-4 stay on the null sink. There is no music/effects split, because there
 is nothing to split: Azahar's HLE DSP mixes a console's music and effects into one stereo

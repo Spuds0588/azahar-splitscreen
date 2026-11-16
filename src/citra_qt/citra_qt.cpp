@@ -36,6 +36,7 @@
 #include <QVariant>
 #include <QtDBus/QDBusInterface>
 #include <QtDBus/QtDBus>
+#include "audio_core/dsp_interface.h"
 #include "common/linux/gamemode.h"
 #endif
 #include "citra_meta/common_strings.h"
@@ -4992,6 +4993,7 @@ int LaunchQtFrontend(int argc, char* argv[]) {
     QString stats_path;
     std::string shm_frame_name;
     std::string input_socket_path;
+    bool effects_tilt = false;
     u16 room_port = 0;
     for (int i = 1; i < argc; ++i) {
         const bool has_value = i + 1 < argc && argv[i + 1][0] != '-';
@@ -5023,8 +5025,13 @@ int LaunchQtFrontend(int argc, char* argv[]) {
             shm_frame_name = argv[++i];
         } else if (strcmp(argv[i], "--input-socket") == 0 && has_value) {
             input_socket_path = argv[++i];
+        } else if (strcmp(argv[i], "--effects-tilt") == 0) {
+            // A seat that does not own the music: high-pass and trim its stream (dsp_interface).
+            effects_tilt = true;
         }
     }
+
+    AudioCore::SetEffectsTilt(effects_tilt);
 
     if (!shm_frame_name.empty()) {
         // The viewer owns the only real window; this process just produces

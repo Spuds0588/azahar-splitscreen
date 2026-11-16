@@ -1,0 +1,73 @@
+Effects-tilted couch mix: every seat on one output, the music owner at full
+==========================================================================
+
+Owner's decision (2026-11-16): the single audio output carries every seat, player 1 at
+full volume, seats 2-4 high-passed and trimmed. A true music/effects split is not
+available - the HLE DSP mixes each console's music and effects into one stereo
+`FinalMixSamples` stream before any sink can see them - so this is an EQ guess that keeps
+the other seats' effects while pushing down their copy of the same music track.
+
+What changed
+------------
+- `src/audio_core/dsp_interface.{h,cpp}`: `AudioCore::SetEffectsTilt` and
+  `DspInterface::EffectsTilt`, a 2nd-order Butterworth high-pass at 300 Hz followed by
+  -6 dB, run in every sink callback after the existing volume slider (so it applies to
+  whichever backend the seat uses).
+- `src/citra_qt/citra_qt.cpp`: the fork flag `--effects-tilt`, applied before emulation
+  starts.
+- `src-tauri/src/slots.rs`: every seat keeps the default output and `volume=1`; the null
+  sink is gone, so all seats mix into the one device.
+- `src-tauri/src/process.rs`: seats 2 and up are launched with `--effects-tilt`; seat 1 is
+  not, so player 1's music is untouched.
+
+Method
+------
+`pw-record --target 54` records the default sink's monitor. The node id is used, not the
+name: the name form silently records the microphone instead (see `shared-audio.txt`).
+48 kHz s16. Each seat is soloed by muting the *other* seat's PipeWire stream node, so the
+mix and each contribution are measured through the same chain. Band levels are ffmpeg
+`highpass`/`lowpass` pairs plus `volumedetect`; the paired test records six alternating
+windows, four seconds with seat 2 unmuted and four with it muted, while seat 1 plays
+throughout.
+
+Session: Mario Kart 7, 2 seats, both at 60 fps. Streams: node 83 = pid 29578 ->
+`slots/p1/user` (no flag), node 76 = pid 29687 -> `slots/p2/user` (`--effects-tilt`). Both
+inis read `output_type` Auto (0) and `volume=1`. The sink was at 0.75 and unmuted (where
+the owner left it) for the whole run, so every number below is from one session.
+
+Results (sink monitor, dBFS)
+----------------------------
+    capture    RMS     peak   60-250Hz  800-2500Hz  2500-8000Hz  bass-mid
+    mix        -13.3   30050    -19.6     -21.7       -29.5        +2.1
+    seat 1     -13.5   26326    -20.6     -20.3       -27.0        -0.3
+    seat 2     -20.7   15476    -36.6     -24.8       -31.8       -11.8
+
+Seat 2 (tilted) is 16.0 dB down in 60-250 Hz but only 4.5 dB down in 800-2500 Hz against
+seat 1, and its bass-to-mid ratio is 11.5 dB lower: that is the high-pass shape, not a
+fader.
+
+Paired test (seat 2 unmuted minus muted; seat 1 playing throughout):
+
+    pair      1      2      3      4      5      6     mean
+    mid    +4.1   +2.5   +0.3   -0.6   -0.2   +1.5    +1.3 dB
+    bass   -1.5   +0.2   +0.7   +0.2   +1.3   +0.2    +0.2 dB
+
+Adding seat 2 lifts the mid band by about what its -4.5 dB contribution should (+1.3 dB
+predicted, +1.3 dB measured) and adds no bass at all. The mix therefore carries seat 1's
+music and both seats' effects.
+
+Spectrograms: `tilt-seat1.png`, `tilt-seat2.png`, `tilt-mix.png`. These are content checks
+(harmonics, engine pass-bys): ffmpeg's spectrogram colour scale is normalised per input,
+so the 16 dB difference is in the table above, not in the pictures.
+
+Not done
+--------
+- 4 seats were not measured. The 2-seat mix peaked at 30050 of 32767, so four consoles at
+  this trim can clip at full sink volume; a lower trim or a limiter is the fix if it does.
+- The tilt is an EQ guess: the other seats keep their music above 300 Hz (melody, cymbals)
+  and lose engine rumble along with the bass. A real split still needs per-console access
+  inside the DSP.
+- No per-seat gain knob: -6 dB and 300 Hz are constants in `dsp_interface.cpp`.
+- One process was launched twice by mistake during an earlier measurement (a standalone
+  console while a two-seat session was running), which is why overlapping music was heard;
+  the numbers above come from a single clean session with no extra consoles.

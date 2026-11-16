@@ -299,12 +299,12 @@ pub fn start(
     let mut instances = Vec::with_capacity(slots.len());
     let mut instance_logs = Vec::with_capacity(slots.len());
     let mut seat_args = Vec::with_capacity(slots.len());
-    for ((slot, ring), socket) in slots.iter().zip(&rings).zip(&sockets) {
+    for (seat, ((slot, ring), socket)) in slots.iter().zip(&rings).zip(&sockets).enumerate() {
         let instance_log = session_dir.join(format!("{}.log", slot.name));
         // A marker left by a session that crashed says nothing about this one.
         let _ = fs::remove_file(restart_marker(&instance_log));
         instance_logs.push(instance_log.clone());
-        let args = vec![
+        let mut args = vec![
             "--user".into(),
             slot.user_dir.display().to_string(),
             // The seat renders into shared memory and takes input from its
@@ -323,8 +323,13 @@ pub fn start(
                 .join(format!("{}.fps", slot.name))
                 .display()
                 .to_string(),
-            rom_path.display().to_string(),
         ];
+        if seat > 0 {
+            // Not the music owner: high-pass and trim, so effects carry without the track.
+            args.push("--effects-tilt".into());
+        }
+        // The ROM path has to stay the last argument.
+        args.push(rom_path.display().to_string());
         match spawn(&bin, &args, &root, &instance_log) {
             Ok(child) => {
                 seat_args.push(args);

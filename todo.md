@@ -264,13 +264,14 @@ touch are playability polish and may slip to Milestone 4.
 - [ ] **Only two of the six test ROMs boot**: Kirby, Zelda Tri Force Heroes, Mario Party Top
       100 and New Super Mario Bros. 2 all report "an encrypted or unsupported application",
       so a bootable dump would widen QA past MK7 and MHS.
-- [x] **Shared audio policy: player 1 only** (2026-11-15, owner's decision): the session's one
-      output is seat 1's console and seats 2-4 stay on the null sink. The alternative (player 1's
-      music with everyone's sound effects) is not available at the sink: the HLE DSP mixes a
-      console's music and effects into one stream before any sink sees it, and the seats are
-      separate processes. Measured on the device: one stream in 1-, 2- and 4-seat sessions, the
-      4-seat capture within 1 dB of the 2-seat one, and a second console provably adds a second
-      stream. History (39), `docs/evidence/shared-audio.txt`.
+- [x] **Effects-tilted couch mix** (2026-11-16, owner's decision): every seat feeds the one
+      output; seat 1 keeps its music at full and seats 2-4 are high-passed (300 Hz, 2nd order)
+      and trimmed -6 dB in `DspInterface::OutputCallback`, behind the fork flag
+      `--effects-tilt` that the orchestrator adds for seats 2+. A true split is not available
+      (the HLE DSP mixes a console's music and effects before any sink), so this is an EQ
+      guess. Measured on the device: the tilted seat is 16 dB down in 60-250 Hz and 4.5 dB down
+      in 800-2500 Hz, and unmuting it lifts the mix's midband by +1.3 dB but its bass by only
+      +0.2 dB. History (40), `docs/evidence/effects-tilt.txt`.
 - [x] **Analog sticks** (2026-11-15): the left stick now sends its real position (a
       type-6 datagram, int16 x/y) instead of arrow keys, and HID hands it to the console as
       the circle pad; a seat with no controller still steers with the profile's arrow keys.

@@ -1709,3 +1709,46 @@ within 1 dB of the two-seat one, so nothing that was audible before has changed.
 classifier, or mixing inside core audio - and is declined for now. Seats 2-4 also still run the
 DSP into the null sink (only the device is avoided, not the CPU), and there is no per-seat
 volume: the policy is all-or-nothing per console.
+## 2026-11-16 (40) - The couch mix: every seat on one output, one music owner
+
+The previous entry proved "player 1 only" because a real music/effects split is unreachable
+at the sink. The owner chose the middle path instead: every seat feeds the one device, player
+1 keeps its music at full, and seats 2-4 are high-passed and trimmed so their copy of the
+same track recedes while their effects stay. This entry is that change and its measurement.
+
+**Where the filter lives.** `DspInterface::OutputCallback` already applied the volume slider
+to every sink's buffer, so the tilt goes there: `AudioCore::SetEffectsTilt` (set from the
+fork flag `--effects-tilt` before emulation starts) and a 2nd-order Butterworth high-pass at
+300 Hz followed by -6 dB, with per-channel state and coefficients that follow the sink's
+sample rate. One implementation, every backend (SDL2, cubeb, OpenAL, null).
+
+**Who gets it.** `slots.rs` now leaves every seat on the default output with `volume=1` (the
+null-sink QVariant is gone) and `process.rs` appends `--effects-tilt` to seats 2 and up. Seat
+1 has no flag, so the music owner's path is byte-for-byte what it was.
+
+**Measured on the device** (MK7, 2 seats at 60 fps, sink monitor at 48 kHz, each seat soloed
+by muting the other's stream node, sink at 0.75 as the owner left it):
+
+| capture | RMS | peak | 60-250 Hz | 800-2500 Hz | 2500-8000 Hz | bass-mid |
+| --- | --- | --- | --- | --- | --- | --- |
+| mix | -13.3 dBFS | 30050 | -19.6 | -21.7 | -29.5 | +2.1 dB |
+| seat 1 | -13.5 dBFS | 26326 | -20.6 | -20.3 | -27.0 | -0.3 dB |
+| seat 2 | -20.7 dBFS | 15476 | -36.6 | -24.8 | -31.8 | -11.8 dB |
+
+Seat 2 is 16 dB down where the music's body is and only 4.5 dB down in the midband - the
+high-pass shape. The paired test agrees: unmuting seat 2 in six alternating windows lifts the
+midband by +1.3 dB on average (theory for its -4.5 dB contribution: +1.3 dB) and the bass by
++0.2 dB. So the mix carries player 1's music and both players' effects, which is what the
+policy asks for.
+
+**Two process notes.** The spectrogram pictures are content checks only: ffmpeg normalises
+its colour scale per input, so the level difference lives in the table. And the "overlapping
+music" the owner heard was my own doing - a standalone control console left running beside a
+two-seat session; the numbers above come from a single clean session, and everything was shut
+down and the rings cleared before starting it.
+
+**Not done:** four seats were not measured (the 2-seat mix peaked at 30050/32767, so four
+consoles at this trim can clip at full volume); the trim and cutoff are constants, not a
+setting; and the tilt is still an EQ guess - the other seats keep their melody and cymbals
+above 300 Hz and lose engine rumble, because a real split needs per-console access inside the
+DSP.

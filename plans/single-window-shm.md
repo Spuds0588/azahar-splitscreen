@@ -1,12 +1,17 @@
 # Mission: one window, shared frames (replacing the XEmbed container)
 
-**Status:** implemented (spike complete, 2026-11-13). `tools/quadview`, the
-XEmbed stopgap, is deleted; `tools/viewer` is the only single-window path. Frames,
-compositing, keys, touch and teardown are all verified (see `history.md` (12)
-and (13)). The one check still outstanding is **environment-blocked, not code**:
-presented fps, because this display's GL stack is stalled (`glxgears` 1.0-1.8
-FPS). Rerun with `./run.sh` + `tools/qa/monitor.sh report` once the screen is
-compositing.
+**Status: shipped (2026-11-16).** `tools/quadview`, the XEmbed stopgap, is deleted;
+`tools/viewer` is the only single-window path and the app is built around it. The open
+question from the first spike - presented fps - closed itself: the viewer now presents
+62.4-62.5 fps over its own timer (the `QT_WAYLAND_FRAME_CALLBACK_TIMEOUT` fix), with six
+seats at 60 fps each.
+
+What landed since the spike: the picker hides on Start and closing the session window
+ends the session and the app (`history.md` (42)); six-seat sessions in a `3x2` grid with a
+per-player outline and badge, top-screen-only tiles with `F5`-`F10` peek for three or more
+seats (43); and one audio stream, owned by seat 1, after the effects-tilt detour was
+deleted (43). The end-to-end description of the shipped flow, with the exact process tree
+and teardown, is `docs/one-window-flow.md`.
 
 **Native Wayland (met, `history.md` (15)):** one window at 1829x1029 presenting
 62.4 fps with four seats at 59–60 fps and rings at 49–53 fps, targeted input and a

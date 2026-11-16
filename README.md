@@ -1,141 +1,136 @@
-![Azahar Emulator](https://azahar-emu.org/resources/images/logo/azahar-name-and-logo.svg)
+# Azahar Splitscreen
 
-![Current Release](https://img.shields.io/github/v/release/azahar-emu/azahar?label=Current%20Release)
-![Current Prerelease](https://img.shields.io/github/v/release/azahar-emu/azahar?include_prereleases&label=Current%20Prerelease)
+**Couch split-screen for Nintendo 3DS local multiplayer, in one window.**
 
-![GitHub Downloads](https://img.shields.io/github/downloads/azahar-emu/azahar/total?logo=github&label=GitHub%20Downloads)
-![Google Play Downloads](https://playbadges.pavi2410.com/badge/downloads?id=io.github.lime3ds.android&pretty&label=Play%20Store%20Downloads)
-![Flathub Downloads](https://img.shields.io/flathub/downloads/org.azahar_emu.Azahar?logo=flathub&label=Flathub%20Downloads)
-![CI Build Status](https://github.com/azahar-emu/azahar/actions/workflows/build.yml/badge.svg)
+Azahar Splitscreen is a fork of [Azahar](https://github.com/azahar-emu/azahar) (the Citra
+successor) plus a small Tauri orchestrator. It runs 2–6 isolated Azahar instances — one
+"console" per player — links them through Azahar's own network room, and composites all of
+their screens into a **single window** driven by shared memory. No per-seat windows, no
+window tiling, no window-manager tricks.
 
-**Azahar** is a free and open-source high level Nintendo 3DS emulator for PC and mobile devices. Our goal is to give 3DS owners a place to enjoy their library of titles with improvements to the original hardware, such as higher resolutions, modern controllers or save states. The emulator also serves as a debugging hub for homebrew developers and as a research and preservation platform for the 3DS ecosystem.
-
-The project continues the legacy of **Citra** and is actively developed by a community of contributors.
-
-*Azahar is not affiliated with or endorsed by Nintendo.*
-
-# Installation
-
-### Windows
-
-Azahar is available as both an installer and a zip archive.
-
-Download the latest release in your preferred format from the [Releases](https://github.com/azahar-emu/azahar/releases) page.
-
-If you are unsure of whether you want to use MSVC or MXE, use MXE.
+*Not affiliated with or endorsed by Nintendo. No ROMs, keys or NAND dumps live in this repo.*
 
 ---
 
-### MacOS
+## Why this exists (and what upstream Azahar does not do)
 
-To download a build that will work on all Macs, you can download the `macos-universal` build on the [Releases](https://github.com/azahar-emu/azahar/releases) page.
+Upstream Azahar emulates **one** 3DS, in **one** window. That is the right shape for playing a
+single-player game, and it is exactly the wrong shape for a couch session: 3DS local
+multiplayer means one console per player, so four people on a couch need four consoles, four
+identities, four sets of saves, four windows to arrange, and one audio device that suddenly
+receives four copies of the same soundtrack.
 
-Alternatively, if you wish to download a build specifically for your Mac, you can choose either:
+Azahar Splitscreen owns that whole problem:
 
-- `macos-arm64` for Apple Silicon Macs
-- `macos-x86_64` for Intel Macs
+| Upstream Azahar | Azahar Splitscreen |
+| --- | --- |
+| One console, one window | 2–6 consoles, **one** window (one taskbar entry, one alt-tab) |
+| You open each instance yourself | A picker starts the room and every seat in one click |
+| Windows you position and tile | Seats render **headless** into shared-memory rings; a viewer composites them |
+| Same user data for every instance | One isolated user dir per seat (NAND, `SecureInfo_A`, saves, config, shader cache) |
+| Every instance plays its own audio | Seat 1 owns the output; the other seats open **no** audio stream |
+| No way to tell the screens apart | Per-player colored outline + `P<n>` badge (palette from [mgba-splitscreen](https://github.com/)'s player tags) |
+| Nothing to quit in one action | Closing the one window tears down the room, every seat and the viewer |
 
----
+The emulator itself is upstream: the fork's patch surface is deliberately tiny (a handful of
+frontend flags, the shared-memory frame ring, the input socket, and the headless seat path).
+Everything couch-specific lives in `src-tauri/` and `tools/viewer/`.
 
-### Android
-
-There are two variants of Azahar available on Android, those being the Vanilla and Google Play builds.
-
-The Vanilla build is technically superior, as it uses an alternative method of file management which is faster, but isn't permitted on the Google Play store.
-
-For most users, we currently recommended downloading Azahar on Android via the Google Play Store for ease of accessibility:
-
-<a href='https://play.google.com/store/apps/details?id=io.github.lime3ds.android'><img width='180' alt='Get it on Google Play' src='https://raw.githubusercontent.com/pioug/google-play-badges/06ccd9252af1501613da2ca28eaffe31307a4e6d/svg/English.svg'/></a>
-
-Alternatively, you can install the app using Obtainium, allowing you to use the Vanilla variant:
-1. Download and install Obtainium from [here](https://github.com/ImranR98/Obtainium/releases) (use the file named `app-release.apk`)
-2. Open Obtainium and click 'Add App'
-3. Type `https://github.com/azahar-emu/azahar` into the 'App Source URL' section
-4. Click 'Add'
-5. Click 'Install', and select the preferred variant
-
-If you wish, you can also simply install the latest APK from the [Releases](https://github.com/azahar-emu/azahar/releases) page.
-
-Keep in mind that you will not recieve automatic updates when installing via the APK.
-
----
-
-### Linux
-
-The recommended format for using Azahar on Linux is the Flatpak available on Flathub:
-
-<a href='https://flathub.org/apps/org.azahar_emu.Azahar'><img width='180' alt='Download on Flathub' src='https://dl.flathub.org/assets/badges/flathub-badge-en.png'/></a>
-
-Azahar is also available as an AppImage on the [Releases](https://github.com/azahar-emu/azahar/releases) page.
-
-There are two variants of the AppImage available, those being `azahar.AppImage` and `azahar-wayland.AppImage`.
-
-If you are unsure of which variant to use, we recommend using the default `azahar.AppImage`. This is because of upstream issues in the Wayland ecosystem which may cause problems when running the emulator (e.g. [#1162](https://github.com/azahar-emu/azahar/issues/1162)).
-
-Unless you explicitly require native Wayland support (e.g. you are running a system with no Xwayland), the non-Wayland variant is recommended.
-
-The Flatpak build of Azahar also has native Wayland support disabled by default. If you require native Wayland support, it can be enabled using [Flatseal](https://flathub.org/en/apps/com.github.tchx84.Flatseal).
-
-# Build instructions
-
-Please refer this repository's [wiki](https://github.com/azahar-emu/azahar/wiki/Building-From-Source) for build instructions
-
-# How can I contribute?
-
-### Pull requests
-
-If you want to implement a change and have the technical capability to do so, we would be happy to accept your contributions.
-
-If you are contributing a new feature, it is highly suggested that you first make a Feature Request issue to discuss the addition before writing any code. This is to ensure that your time isn't wasted working on a feature which isn't deemed appropriate for the project.
-
-After creating a pull request, please don't repeatedly merge `master` into your branch. A maintainer will update the branch for you if/ when it is appropriate to do so.
-
-### Language translations
-
-Additionally, we are accepting language translations on [Transifex](https://app.transifex.com/azahar/azahar). If you know a non-english language listed on our Transifex page, please feel free to contribute.
-
-> [!NOTE]
-> We are not currently accepting new languages for translation. Please do not request for new languages or language variants to be added.
-
-### Compatibility reports
-
-Even if you don't wish to contribute code or translations, you can help the project by reporting game compatibility data to our compatibility list.
-
-To do so, simply read https://github.com/azahar-emu/compatibility-list/blob/master/CONTRIBUTING.md and follow the instructions.
-
-Contributing compatibility data helps more accurately reflect the current capabilities of the emulator, so it would be highly appreciated if you could go through the reporting process after completing a game.
-
-# Minimum requirements
-
-Below are the minimum requirements to run Azahar:
-
-### Desktop
+## What a session looks like
 
 ```
-Operating System: Windows 10 (64-bit), MacOS 13.4 (Ventura), or modern 64-bit Linux
-CPU: x86-64/ARM64 CPU (Windows for ARM not supported).
-     Single core performance higher than 1,800 on Passmark.
-     SSE4.2 required on x86_64.
-GPU: OpenGL 4.3 or Vulkan 1.1 support
-Memory: 2GB of RAM. 4GB is recommended
-```
-### Android
-
-```
-Operating System: Android 10.0+ (64-bit)
-CPU: Snapdragon 835 SoC or better
-GPU: OpenGL ES 3.2 or Vulkan 1.1 support
-Memory: 2GB of RAM. 4GB is recommended
+azahar-splitscreen  (Tauri picker)
+   │  pick ROM + 2–6 players, press Start; the picker hides
+   ├── azahar-room                loopback UDP, one room for the session
+   ├── azahar --shm-frame azsh-<pid>-1 --input-socket "slots/Player 1.sock" --user slots/p1/user
+   ├── azahar --shm-frame azsh-<pid>-2 …                                  (one per seat, headless)
+   └── azahar-viewer              the session window: composites every ring, routes input
+        └─ closing this window drops the session, kills the seats and exits
 ```
 
-# What's next?
+- Each seat publishes RGBA frames into its own POSIX shared-memory ring (3 slots, sequence
+  counter) and receives keyboard/touch datagrams on its socket.
+- The viewer draws the rings into a grid — 2 seats `2x1`, 3–4 `2x2`, 5–6 `3x2` — at the
+  display rate, with each player's color on the tile edge and on the badge.
+- With 3+ seats the tiles show the **top screen only** (the action screen); each player holds
+  their own peek key (`F5`–`F10`, or a pad's left shoulder) to see their touch screen.
+- Two seats still show both screens, as before.
 
-We share public roadmaps for upcoming releases in the form of GitHub milestones.
+## Controls
 
-You can find these at https://github.com/azahar-emu/azahar/milestones.
+| | |
+| --- | --- |
+| `F5`…`F10` | Hold to peek at that player's touch screen |
+| `Tab` | Toggle top-screen-only / both-screens layout |
+| Mouse | Taps go to the seat under the pointer |
+| `Esc` / close the window | Quit (everything is torn down) |
 
-# Join the conversation
+Gamepads are enumerated by the picker and their buttons are forwarded to the seat they were
+assigned to; without one, the keyboard works.
 
-We have a community Discord server where you can chat about the project, keep up to date with the latest announcements, or coordinate emulator development.
+## Build and run
 
-Join at https://discord.gg/4ZjMpAp3M6
+```bash
+# Qt6 + Ninja + CMake >= 3.25 + SDL2 + the Rust toolchain
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DENABLE_LTO=OFF -DENABLE_QT_UPDATE_CHECKER=OFF
+ninja -C build -j 4                                    # emulator + azahar-room
+ninja -C tools/viewer/build                             # the one-window viewer
+(cd src-tauri && cargo build --release)                 # the picker/orchestrator
+
+./src-tauri/target/release/azahar-splitscreen           # pick a ROM, players, Start
+```
+
+QA/terminal path (same session, no picker, foreground, `Ctrl-C` or close the window to stop):
+
+```bash
+./src-tauri/target/release/azahar-splitscreen --start "Test Roms/<game>.3ds" --players 2
+```
+
+Slots, save sets, per-seat fps and logs land in `slots/`.
+
+## Status
+
+Verified on this dev box (Linux, Wayland/XWayland, 15 GiB RAM, 8 threads), all from real
+app-driven runs — details and captures in `docs/evidence/`:
+
+- **One window.** After Start there is exactly one session window; the picker hides. Closing it
+  leaves no orchestrator, room, seat, emulator or viewer process, no `/dev/shm/azsh-*` rings
+  and no audio streams.
+- **Six seats** ran Mario Kart 7 in one window with every seat at `60.0 fps`, speed ≈100
+  (load 8.7 on 8 threads, 8 of 15 GiB) — working, but at this machine's edge.
+- **Top-screen-only** at 3+ seats with working per-seat peek; two seats keep both screens.
+- **One audio stream:** seat 1's; every other seat uses Azahar's null sink.
+- **Save data:** each player's own set, one shared set for the group, or a per-seat import.
+- **Link layer:** Azahar's own room (UDS relay) with real counters between two instances.
+
+Known limits, stated plainly:
+
+- **Two titles boot on this box**: Mario Kart 7 and Monster Hunter Stories. The other four test
+  dumps failed with "Failed to determine system mode" and were removed; every QA claim above
+  rests on those two titles.
+- **Save states are not implemented** (save *data* sets are).
+- **Gamepads are optional and per-seat**; nothing is invented when none is attached.
+- **Per-seat ROMs are deliberately unsupported**: every seat in a session plays the same game.
+- The 4–6 seat audio headroom question is open: the mix can reach full scale at the default
+  system volume.
+- In-process seats (one process, N cores) were investigated and rejected — see
+  `plans/in-process-seats.md`.
+
+## Documentation map
+
+| File | What it holds |
+| --- | --- |
+| `docs/one-window-flow.md` | How the shipped one-window shared-memory flow works, end to end |
+| `docs/evidence/` | Per-feature measurements, logs and screenshots behind the status above |
+| `history.md` | Dated engineering log with verdicts and numbers |
+| `todo.md` | What is done, what is open, what is deliberately not happening |
+| `AGENTS.md` | Orientation for agent sessions, rules and gotchas |
+| `plans/` | The two architecture spikes and their verdicts |
+
+## Relationship to upstream
+
+This is a downstream fork of `azahar-emu/azahar`; the upstream README, installation
+instructions, release channels and compatibility reporting all still apply to the emulator
+itself. Fork changes are kept small and reviewed by hand, and Azahar's `AI-POLICY.md` applies
+to anything proposed upstream.

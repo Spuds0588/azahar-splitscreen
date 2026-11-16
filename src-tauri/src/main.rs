@@ -213,7 +213,8 @@ fn run_headless(rom: &str, players: u8, saves_mode: saves::Mode) -> ! {
     println!("{}", session.summary);
     while !TERMINATE.load(std::sync::atomic::Ordering::SeqCst) {
         session.watch();
-        if !session.is_running() {
+        // The session window owns the session here too: closing it ends the run.
+        if !session.is_running() || session.viewer_gone() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(500));

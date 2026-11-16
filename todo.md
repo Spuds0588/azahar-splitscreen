@@ -5,6 +5,16 @@
 > same change as the work. Rules live in `AGENTS.md` (YAGNI, one-line
 > solutions, clean the dev env).
 
+## 📍 Where this is now (2026-11-16)
+
+The one-window shared-memory app is the shipped shape: picker -> room + 2-6 headless seats
+(`--shm-frame` + `--input-socket`) -> one viewer window -> close it to quit. Verified end to
+end: one window, six seats at 60 fps each, per-player outlines, top-screen-only 3+ seats with
+peek, one audio stream, and teardown that leaves no processes or `/dev/shm` rings.
+`docs/one-window-flow.md` is the description; `docs/evidence/` is the proof. Only Mario Kart 7
+and Monster Hunter Stories boot here, every seat plays the same ROM, save states are not
+implemented, and 4-6 seat audio headroom is open.
+
 ## ✅ 2026-11-13 — Diagnostic link-test ROM (built and run; link verified)
 
 No game ROM is needed to test the link: `tools/diagrom` builds
@@ -300,6 +310,8 @@ touch are playability polish and may slip to Milestone 4.
       guess. Measured on the device: the tilted seat is 16 dB down in 60-250 Hz and 4.5 dB down
       in 800-2500 Hz, and unmuting it lifts the mix's midband by +1.3 dB but its bass by only
       +0.2 dB. History (40), `docs/evidence/effects-tilt.txt`.
+      **Superseded in (43):** the tilt was deleted; seats 2+ now use Azahar's null sink, so a
+      session opens exactly one audio stream.
 - [x] **Analog sticks** (2026-11-15): the left stick now sends its real position (a
       type-6 datagram, int16 x/y) instead of arrow keys, and HID hands it to the console as
       the circle pad; a seat with no controller still steers with the profile's arrow keys.
@@ -311,12 +323,13 @@ touch are playability polish and may slip to Milestone 4.
       Chase the NAND save metadata that pairs with the SD save before trusting imports.
 
 - [ ] Screen-swap hint on first launch per slot (one overlay, dismissible).
-- [ ] Pause/exit: one hotkey that stops the whole session, not four windows.
+- [x] **Quit from the one window** (2026-11-16): closing the session window stops the room,
+      every seat and the viewer, and exits the orchestrator - no hotkey needed. History (42).
 - [ ] Controller disconnect/reconnect handling per seat.
-- [x] **Player badges** (2026-11-14): the viewer draws a `P1`–`P4` chip beside each
-      tile's picture, so a couch can tell the seats apart without an overlay. Verified on a
-      4-player MK7 window capture (four badges, correct quadrants, 62.5 fps) and the
-      2-player default (`history.md` (27)).
+- [x] **Player badges** (2026-11-14): the viewer draws a `P1`–`P6` chip beside each tile's
+      picture, in the player's own color since (43), so a couch can tell the seats apart
+      without an overlay. Verified on a 4-player MK7 window capture (four badges, correct
+      quadrants, 62.5 fps), the 2-player default (`history.md` (27)) and six seats (43).
 
 ## 🔴 Milestone 5 — acceptance (Mario Kart 7 benchmark)
 

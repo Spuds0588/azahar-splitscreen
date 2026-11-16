@@ -1,3 +1,8 @@
+> **Superseded (2026-11-16):** the tilt was removed. Seats 2+ now use Azahar's null sink
+> (`[Audio] output_type=1`), so a session opens exactly one audio stream and the fork's
+> `--effects-tilt` flag and DSP filter no longer exist. This file is the record of what was
+> measured, not the current behaviour. See `history.md` (43).
+
 Effects-tilted couch mix: every seat on one output, the music owner at full
 ==========================================================================
 

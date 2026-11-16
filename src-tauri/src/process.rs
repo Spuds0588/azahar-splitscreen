@@ -310,7 +310,7 @@ pub fn start(
     let mut instances = Vec::with_capacity(slots.len());
     let mut instance_logs = Vec::with_capacity(slots.len());
     let mut seat_args = Vec::with_capacity(slots.len());
-    for (seat, ((slot, ring), socket)) in slots.iter().zip(&rings).zip(&sockets).enumerate() {
+    for ((slot, ring), socket) in slots.iter().zip(&rings).zip(&sockets) {
         let instance_log = session_dir.join(format!("{}.log", slot.name));
         // A marker left by a session that crashed says nothing about this one.
         let _ = fs::remove_file(restart_marker(&instance_log));

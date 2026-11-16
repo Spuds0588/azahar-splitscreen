@@ -1881,3 +1881,41 @@ About 4 GB was freed; `Test Roms/` now holds the two dumps that run. The folder 
 so the tree change is the todo note: the QA gap is now "only MK7 and MHS can be boot-tested"
 rather than a count of broken dumps. The rings the SIGKILLed runs left in `/dev/shm` were
 removed by hand.
+## 2026-11-16 (45) - The docs say what the app is now
+
+A documentation pass, plus the two code changes it produced.
+
+**Per-seat ROMs: built, then removed.** To put both booting dumps in one window the
+orchestrator briefly grew `--seat-rom <seat>=<rom>` (resolved per seat in `process::start`),
+and a mixed MK7 + Monster Hunter Stories session started cleanly under it: one window, two
+rings, both seats spawned with their own dump. The owner rejected the capability outright -
+every seat in a session plays the same game - so it was deleted instead of kept as a hidden
+QA flag. No `seat-rom` reference remains.
+
+**`--start` quits like the app.** `run_headless` now also stops when the session window closes
+(`Session::viewer_gone()`), instead of only on Ctrl-C, so "close the window" is the quit path
+in both entry points. Verified on the mixed run before it was abandoned: closing the viewer
+took the room, both seats and the viewer with it - no processes, no rings, no streams.
+
+**Documentation rewritten against the shipped app.**
+
+- `README.md` is the fork's own front door: what it is, why it exists next to upstream (with a
+  comparison table), the process tree, controls, build/run, and a status section that states
+  the limits plainly (two bootable dumps, no save states, per-seat ROMs unsupported, 4-6 seat
+  audio headroom open).
+- `docs/one-window-flow.md` (new) describes the shipped flow end to end: process tree,
+  lifecycle from picker to quit, the ring format, layout and peek rules, the single audio
+  owner, teardown guarantees, and how to reproduce and check a run.
+- `AGENTS.md`: project description, architecture (one window, not tiled windows), current
+  state, build/run (a headless seat plus the viewer instead of per-seat geometry flags) and
+  the gotchas (seats must stay headless, no per-window capture on this compositor, one audio
+  owner, SIGKILL on hang) now match reality.
+- `plans/single-window-shm.md` status is "shipped", with the old presented-fps open question
+  closed by the 62 fps measurements.
+- `todo.md` gains a "where this is now" header; the effects-tilt and P1-only audio entries
+  record the supersession, the badge entry covers `P1`-`P6`, and the "one hotkey to exit"
+  item is closed by the window-close quit.
+- `docs/evidence/effects-tilt.txt` carries a superseded banner so it is not read as current
+  behaviour.
+
+`cargo build --release` and `cargo test --release` pass on the final tree.

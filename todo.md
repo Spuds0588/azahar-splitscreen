@@ -327,6 +327,13 @@ touch are playability polish and may slip to Milestone 4.
       a replug can land on a different seat, so a couch cannot say "this pad is P3". The buttons
       themselves are now remappable (Controls -> Gamepad Mapping, history (48)); what is missing
       is a per-pad seat assignment, which needs a list in the picker or the session menu.
+- [x] **RetroArch core** (2026-11-16): `src/citra_libretro_split` builds a launcher core - boot
+      menu picks 2-6 players, then it spawns `azahar-room` and one headless seat per player,
+      composites their rings and routes RetroPad port N to seat N (history (49)). Verified with a
+      harness frontend at 2 and 3 players plus a RetroArch load of the boot menu. Open ends: audio
+      still comes from the seats' own devices, and 4-6 seats have not been run through the core.
+- [ ] **Core audio**: the core sends silence because each seat opens its own device; a
+      `--shm-audio` ring would let the core own the single stream.
 - [ ] **Save states**: not implemented anywhere in the app - seats are headless and no
       save-state hotkey is forwarded. Save *data* sets are the supported management path.
 - [ ] **Save-set integrity**: after importing a set, MK7 says "The save data is corrupted

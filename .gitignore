@@ -1,6 +1,7 @@
 # Build directory
 [Bb]uild*/
 doc-build/
+build-split-core/
 build-*/
 
 # NSIS built executables

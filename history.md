@@ -2015,3 +2015,33 @@ switches to top-only and back (`viewer: view top screen only` / `both screens`),
 from the picker's choice arrives at the viewer, F1 lists the mapping, the mapping dialog lists
 all 13 actions and arms itself for the next pad press, and closing the window still leaves 0
 windows and 0 rings.
+
+## 2026-11-16 (49) - The core that asks how many players
+
+mgba-splitscreen ships an in-core array of instances with a boot menu; Azahar cannot, because its
+core is singleton-heavy (the same measurement that made `plans/in-process-seats.md` a no-go).
+So `src/citra_libretro_split` is a launcher core, not a port: it links nothing from Azahar and
+does from inside RetroArch what the session window does from outside it.
+
+- **Boot menu** - `retro_load_game` shows a menu (5x7 bitmap font, no assets) with the player
+  count, seeded by the `Players per ROM` core option (2-6). Left/right changes it, Start spawns
+  that many consoles. The last line says which layout that count gets.
+- **Spawn** - the core starts `azahar-room` on a free loopback port, then one headless
+  `azahar --shm-frame ... --input-socket ... --join-room ...` per player, each with its own user
+  dir under RetroArch's save directory. It finds the binaries in `AZAHAR_SPLITS_ROOT`, one folder
+  above the core (a beta bundle's `cores/`), or the working directory.
+- **Composite and input** - the newest slot of every ring is read bottom-up BGRA and scaled into
+  a 1280x720 XRGB8888 frame with the player's colour bar and `P<n>` tag; two players get both
+  screens, three or more the action screen. RetroPad port N drives seat N (A/B/X/Y, D-pad, Start,
+  Select, L3=L, R=R, L2=ZL, R2=ZR), the left stick is the circle pad, the right stick walks the
+  touch pointer and R3 taps, and holding L shows that seat's touch screen.
+
+Verified two ways. A throwaway libretro harness (dlopen + callbacks, in `/tmp`, not committed)
+loaded the core, played the menu with Start, and ran 1432 frames: two MK7 seats booted, joined the
+room at 60 fps and composited side by side; pressing right first spawned three seats into a 2x2
+grid of top screens; `retro_unload_game` left 0 processes and 0 rings. Then RetroArch itself
+loaded the core and drew the boot menu (this session is Wayland, so its keys cannot be injected
+from outside, which is why Start was exercised through the harness rather than the frontend).
+
+Open ends, recorded in `todo.md`: the core's audio callback sends silence (each seat keeps its own
+output device), and 4-6 seats have only been proven through the window, not through the core.

@@ -38,6 +38,10 @@ if (BSD STREQUAL "OpenBSD")
 endif()
 
 option(ENABLE_LIBRETRO "Build as a LibRetro core" OFF)
+# The fork's split-screen core: a launcher that spawns the emulator and
+# composites its frame rings. Standalone (it links nothing from Azahar), so it
+# can also be built on its own from src/citra_libretro_split.
+option(ENABLE_LIBRETRO_SPLIT "Build the split-screen LibRetro core" OFF)
 
 # Some submodules like to pick their own default build type if not specified.
 # Make sure we default to Release build type always, unless the generator has custom types.
@@ -171,6 +175,10 @@ option(CITRA_ADDRESS_SANITIZE "Enable address sanitizer" OFF)
 option(ENABLE_CCACHE "Use ccache to speed up subsequent builds" OFF)
 
 # Handle incompatible options for libretro builds
+if(ENABLE_LIBRETRO_SPLIT)
+    add_subdirectory(src/citra_libretro_split)
+endif()
+
 if(ENABLE_LIBRETRO)
     if(ANDROID)
         # libretro builds use Android API level 21, which does not support std::aligned_alloc(added in API level 28)

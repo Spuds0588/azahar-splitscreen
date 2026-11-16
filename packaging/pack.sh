@@ -33,6 +33,11 @@ mkdir -p "$out/build/bin/Release" "$out/tools/viewer/build" "$out/Test Roms"
 cp "$emulator" "$room" "$out/build/bin/Release/"
 cp "$cargo_target/azahar-splitscreen" "$out/build/bin/Release/"
 cp tools/viewer/build/azahar-viewer "$out/tools/viewer/build/"
+# The RetroArch core, when it was built beside the tree.
+mkdir -p "$out/cores"
+for core in build-split-core/azahar_splitscreen_libretro.*; do
+    [ -f "$core" ] && cp "$core" "$out/cores/"
+done
 cp packaging/run.sh packaging/BETA.txt "$out/"
 chmod +x "$out/run.sh" \
          "$out/build/bin/Release/azahar" \

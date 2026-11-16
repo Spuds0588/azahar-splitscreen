@@ -79,6 +79,34 @@ stick walks the touch pointer and clicking it taps, and a held left shoulder is 
 the mapping is saved to `slots/pads.json` and survives the session. The picker lists the pads
 the kernel reports; without one, the keyboard works.
 
+## RetroArch core
+
+`src/citra_libretro_split` builds `azahar_splitscreen_libretro`, a libretro core that runs one
+ROM on 2-6 consoles inside RetroArch. It is a launcher, not a port of the emulator: Azahar's core
+cannot hold several instances in one process, so the core does what the session window does.
+The boot menu asks how many players to spawn, then the core starts `azahar-room` plus one headless
+`azahar` per seat, joins them, and composites their shared-memory rings into the core's frame.
+RetroPad port 1 drives P1, port 2 P2, and so on.
+
+```bash
+cmake -S src/citra_libretro_split -B build-split-core -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-split-core
+retroarch -L build-split-core/azahar_splitscreen_libretro.so "Test Roms/game.3ds"
+```
+
+Or configure the main tree with `-DENABLE_LIBRETRO_SPLIT=ON`, which adds the core target.
+
+- The boot menu starts at the **Players per ROM** core option (2–6); left/right changes it and
+  Start spawns that many consoles. The menu also says whether the layout is both screens (2) or
+  the action screen with a peek (3+).
+- The core looks for the emulator in `AZAHAR_SPLITS_ROOT`, one folder above itself, or the
+  working directory, so a beta bundle's `cores/` folder works as-is.
+- Per player: A/B/X/Y, D-pad, Start, Select, L3 = L, R = R, L2 = ZL, R2 = ZR, left stick = circle
+  pad, right stick = touch pointer, R3 taps, and holding L shows that player's touch screen.
+- Each seat keeps its own audio device, so sound comes from the system mixer rather than
+  RetroArch's audio callback, which receives silence. Session slots, logs and sockets land in
+  RetroArch's save directory under `azahar-splitscreen/`.
+
 ## Build and run
 
 ```bash

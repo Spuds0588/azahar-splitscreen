@@ -13,18 +13,24 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 cargo_target=${CARGO_TARGET:-src-tauri/target/release}
 
 cd "$root"
-# The emulator lands in build/bin/Release with a multi-config generator and in
-# build/bin with Ninja (macOS CI). The bundle always uses the Release layout,
-# because that is what the orchestrator resolves at run time.
+# Where the emulator lands depends on the platform: build/bin/Release on a
+# Ninja build, and inside azahar.app on macOS, where upstream builds an app
+# bundle. The bundle always uses the Release layout, because that is what the
+# orchestrator resolves at run time.
 bin_dir=build/bin/Release
-if [ ! -x "$bin_dir/azahar" ]; then
-    bin_dir=build/bin
+[ -d "$bin_dir" ] || bin_dir=build/bin
+emulator="$bin_dir/azahar"
+[ -x "$emulator" ] || emulator="$bin_dir/azahar.app/Contents/MacOS/azahar"
+room="$bin_dir/azahar-room"
+if [ ! -x "$emulator" ] || [ ! -x "$room" ]; then
+    echo "pack: azahar ($emulator) or azahar-room ($room) is missing; build first" >&2
+    exit 1
 fi
 out="out/$name"
 rm -rf "$out"
 mkdir -p "$out/build/bin/Release" "$out/tools/viewer/build" "$out/Test Roms"
 
-cp "$bin_dir/azahar" "$bin_dir/azahar-room" "$out/build/bin/Release/"
+cp "$emulator" "$room" "$out/build/bin/Release/"
 cp "$cargo_target/azahar-splitscreen" "$out/build/bin/Release/"
 cp tools/viewer/build/azahar-viewer "$out/tools/viewer/build/"
 cp packaging/run.sh packaging/BETA.txt "$out/"

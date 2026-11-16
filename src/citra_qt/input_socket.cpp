@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cstring>
 
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -19,10 +20,17 @@ bool InputSocket::Open(const std::string& path) {
         LOG_ERROR(Frontend, "input socket path is too long: {}", path);
         return false;
     }
-    fd_ = ::socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    // SOCK_CLOEXEC/SOCK_NONBLOCK are Linux-only socket() flags; fcntl is the
+    // portable way to get the same guarantees, and macOS needs it.
+    fd_ = ::socket(AF_UNIX, SOCK_DGRAM, 0);
     if (fd_ < 0) {
         LOG_ERROR(Frontend, "input socket: socket() failed: {}", std::strerror(errno));
         return false;
+    }
+    ::fcntl(fd_, F_SETFD, FD_CLOEXEC);
+    const int flags = ::fcntl(fd_, F_GETFL, 0);
+    if (flags >= 0) {
+        ::fcntl(fd_, F_SETFL, flags | O_NONBLOCK);
     }
     sockaddr_un address{};
     address.sun_family = AF_UNIX;

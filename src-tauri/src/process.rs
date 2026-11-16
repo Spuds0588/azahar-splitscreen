@@ -100,7 +100,7 @@ impl Session {
             terminate(&mut self.instances[seat]);
             // A killed seat leaves its ring behind, sometimes mid-resize; give
             // the replacement a clean object (the viewer re-attaches by inode).
-            let _ = fs::remove_file(Path::new("/dev/shm").join(&self.rings[seat]));
+            remove_ring(&self.rings[seat]);
             // Let the room drop the dead member before the replacement joins it.
             sleep(Duration::from_secs(2));
             self.restarts[seat] += 1;
@@ -155,14 +155,39 @@ impl Drop for Session {
 /// Qt platform for the seats and the viewer. X11/XWayland is the proven path;
 /// set `AZAHAR_QT_PLATFORM=wayland` to run the wayland-native acceptance test.
 fn qt_platform() -> String {
-    std::env::var("AZAHAR_QT_PLATFORM").unwrap_or_else(|_| "xcb".to_string())
+    std::env::var("AZAHAR_QT_PLATFORM").unwrap_or_else(|_| {
+        // macOS has no xcb; Qt picks the platform itself when we stay out of it.
+        if cfg!(target_os = "macos") {
+            "cocoa".to_string()
+        } else {
+            "xcb".to_string()
+        }
+    })
+}
+
+/// Drop a ring from the shared-memory namespace. Linux exposes the objects as
+/// files under /dev/shm; elsewhere they only exist through shm_unlink.
+fn remove_ring(ring: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = fs::remove_file(Path::new("/dev/shm").join(ring));
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let name = format!("/{}", ring.trim_start_matches('/'));
+        if let Ok(name) = std::ffi::CString::new(name) {
+            unsafe {
+                libc::shm_unlink(name.as_ptr());
+            }
+        }
+    }
 }
 
 /// Remove the session's shared-memory rings and input sockets. The emulator
 /// unlinks both on a clean exit; this is what covers a killed or crashed seat.
 fn cleanup_artifacts(rings: &[String], sockets: &[PathBuf]) {
     for ring in rings {
-        let _ = fs::remove_file(Path::new("/dev/shm").join(ring));
+        remove_ring(ring);
     }
     for socket in sockets {
         let _ = fs::remove_file(socket);
@@ -509,8 +534,8 @@ fn check_boots(
 fn spawn(bin: &Path, args: &[String], cwd: &Path, log_path: &Path) -> io::Result<Child> {
     let out = File::create(log_path)?;
     let err = out.try_clone()?;
-    Command::new("setsid")
-        .arg(bin)
+    let mut command = Command::new(bin);
+    command
         .args(args)
         .current_dir(cwd)
         .env("QT_QPA_PLATFORM", qt_platform())
@@ -519,8 +544,14 @@ fn spawn(bin: &Path, args: &[String], cwd: &Path, log_path: &Path) -> io::Result
         .env("QT_ENABLE_HIGHDPI_SCALING", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))
-        .stderr(Stdio::from(err))
-        .spawn()
+        .stderr(Stdio::from(err));
+    // Give every child its own process group so teardown can signal the whole tree.
+    // This replaces the `setsid` wrapper, which does not exist on macOS.
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command.spawn()
 }
 
 fn wait_for_room(room: &mut Child, log_path: &Path) -> Result<(), String> {
@@ -548,15 +579,39 @@ fn restart_marker(seat_log: &Path) -> PathBuf {
 /// The ring's publish counter, or 0 while the seat has not created the object
 /// (or has just replaced it).
 fn ring_seq(ring: &str) -> u64 {
-    use std::os::unix::fs::FileExt;
-    let Ok(file) = File::open(format!("/dev/shm/{ring}")) else {
-        return 0;
-    };
-    let mut bytes = [0u8; 8];
-    if file.read_at(&mut bytes, 32).is_err() {
-        return 0;
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::FileExt;
+        let Ok(file) = File::open(format!("/dev/shm/{ring}")) else {
+            return 0;
+        };
+        let mut bytes = [0u8; 8];
+        if file.read_at(&mut bytes, 32).is_err() {
+            return 0;
+        }
+        u64::from_le_bytes(bytes)
     }
-    u64::from_le_bytes(bytes)
+    #[cfg(not(target_os = "linux"))]
+    {
+        // The object is not a file outside Linux; read it through shm_open.
+        let name = format!("/{}", ring.trim_start_matches('/'));
+        let Ok(name) = std::ffi::CString::new(name) else {
+            return 0;
+        };
+        let fd = unsafe { libc::shm_open(name.as_ptr(), libc::O_RDONLY, 0) };
+        if fd < 0 {
+            return 0;
+        }
+        let mut bytes = [0u8; 8];
+        let read = unsafe { libc::pread(fd, bytes.as_mut_ptr().cast(), 8, 32) };
+        unsafe {
+            libc::close(fd);
+        }
+        if read != 8 {
+            return 0;
+        }
+        u64::from_le_bytes(bytes)
+    }
 }
 
 fn free_udp_port() -> Result<u16, String> {
@@ -567,17 +622,18 @@ fn free_udp_port() -> Result<u16, String> {
 }
 
 fn terminate(child: &mut Child) {
-    let pid = child.id();
-    // Each child is a session leader via setsid, so the negative PID reaches
-    // its whole group (including any helper threads/children).
-    let _ = Command::new("kill")
-        .args(["-TERM", &format!("-{pid}")])
-        .status();
+    let pid = child.id() as i32;
+    // Each child leads its own process group, so the negative PID reaches its
+    // whole group (including any helper threads/children). Signalling through
+    // libc keeps this off the `kill` binary, which macOS spells differently.
+    unsafe {
+        libc::kill(-pid, libc::SIGTERM);
+    }
     let _ = child.kill();
     let _ = child.wait();
-    let _ = Command::new("kill")
-        .args(["-KILL", &format!("-{pid}")])
-        .status();
+    unsafe {
+        libc::kill(-pid, libc::SIGKILL);
+    }
 }
 
 /// Confirm the one-time "No extra data found" prompt a fresh slot shows before a

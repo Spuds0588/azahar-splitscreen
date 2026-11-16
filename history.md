@@ -1953,3 +1953,36 @@ build container, `app-linux` on ubuntu-24.04 with the viewer and Tauri dependenc
 `x86_64-apple-darwin` Rust target - the Intel flag, stated where it belongs. Both bundles are
 attached to a pre-release by the `release` job. Only Linux x86_64 and macOS x86_64 artifacts are
 produced, for the platform reason above.
+
+## 2026-11-16 (47) - The macOS build found five Linux-isms
+
+The first tagged run proved the Linux half end to end: `emulator-linux` built in upstream's
+container, `app-linux` built the viewer and the orchestrator, and the uploaded 30 MB bundle was
+downloaded again, unpacked outside the repo and run - picker, Start, one window, `fps=60.0` per
+seat, `presented_fps=62.6`, and a clean close. The macOS job then failed in the emulator build,
+which was the useful result: the code had never been compiled by anything but Linux.
+
+`src/citra_qt/input_socket.cpp` passed `SOCK_CLOEXEC | SOCK_NONBLOCK` to `socket()`. Those flags
+are Linux-only and do not exist on Darwin's `socket()`. The same audit turned up the rest of the
+list before the rerun could fail on each one in turn:
+
+- **Socket flags** - `input_socket.cpp` and the viewer's `send_input` now take a plain
+  `SOCK_DGRAM` socket and set `FD_CLOEXEC` / `O_NONBLOCK` through `fcntl`, which both platforms
+  honour. `MSG_NOSIGNAL` has no macOS counterpart either, so it is used only where it is
+  defined and the viewer ignores `SIGPIPE` at startup instead.
+- **Session teardown** - the orchestrator wrapped every child in `setsid(1)`, which macOS does
+  not ship, and signalled groups through `kill(1)`. Children now get `process_group(0)` from
+  `CommandExt`, and `terminate()` calls `libc::kill(-pid, …)` directly, so the session, the
+  group signal and the TERM-then-KILL order are unchanged without needing those binaries.
+- **Shared-memory names** - the ring name was passed to `shm_open` without a leading slash,
+  which Linux tolerates in this configuration and macOS rejects. Both the writer and the viewer
+  normalise the name to `/azsh-…`; logs and the session file keep the plain name.
+- **Reading the ring** - `ring_seq` and the artifact cleanup reached into `/dev/shm`, which only
+  exists on Linux. There they keep reading the file; elsewhere the same eight bytes come from
+  `shm_open` + `pread` and the stale ring is dropped with `shm_unlink`.
+- **Qt platform** - the default `QT_QPA_PLATFORM` is `cocoa` on macOS and `xcb` elsewhere.
+
+Rebuilt and re-ran on Linux after the change: emulator, viewer and orchestrator compile, two
+seats hold `fps=60.0 speed=100.3`, the viewer paints at `presented_fps=62.4`, and closing the
+window leaves 0 windows and 0 rings - the new group-based teardown behaves like the old one.
+`v0.1.0-beta.2` carries the fix; the Intel macOS build is the one this entry is waiting on.

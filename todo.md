@@ -318,10 +318,11 @@ touch are playability polish and may slip to Milestone 4.
       Verified in the guest (`x=77` at half, `154` at full, `y=77` at half up), on the wire,
       and through a pad, with a second pad's deflection leaving the first seat centred.
       History (38), `docs/evidence/pad-analog.*`.
-- [ ] **Windows build**: the frame ring is POSIX shared memory and the orchestrator uses
-      `setsid`/`kill`/Unix sockets, so a Windows artifact needs a port (named shared memory,
-      named pipes or loopback TCP for input, `TerminateProcess` for teardown) before it can be
-      released. Linux and macOS x86_64 betas ship today.
+- [ ] **Windows build**: the frame ring is POSIX shared memory and the orchestrator relies on
+      POSIX process groups, `shm_unlink` and Unix sockets, so a Windows artifact needs a port
+      (named shared memory, named pipes or loopback TCP for input, job objects or
+      `TerminateProcess` for teardown) before it can be released. Linux and macOS x86_64 betas
+      ship today.
 - [ ] **Controller-to-seat mapping**: pads are assigned to seats by connection order and the
       buttons are fixed (verified in history (36)-(38)); there is no remap UI and a replug can
       land on a different seat. Fine for a beta, open for a 1.0.

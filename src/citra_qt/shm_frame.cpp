@@ -3,6 +3,7 @@
 #include "common/logging/log.h"
 
 #include <cstring>
+#include <string>
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -15,6 +16,12 @@ constexpr std::uint32_t kVersion = 1;
 constexpr std::uint32_t kSlotCount = 3;
 constexpr std::size_t kHeaderBytes = 64;
 constexpr std::uint32_t kFormatBgraBottomUp = 0;
+
+// shm_open takes a POSIX name, which must start with a slash on both Linux and
+// macOS. Session logs and the viewer keep using the plain name.
+std::string ShmName(const std::string& name) {
+    return (!name.empty() && name.front() == '/') ? name : "/" + name;
+}
 } // namespace
 
 struct ShmFrameRing::Header {
@@ -42,7 +49,7 @@ ShmFrameRing::~ShmFrameRing() {
 bool ShmFrameRing::Open(const std::string& name) {
     Close();
     name_ = name;
-    fd_ = shm_open(name.c_str(), O_CREAT | O_RDWR, 0600);
+    fd_ = shm_open(ShmName(name).c_str(), O_CREAT | O_RDWR, 0600);
     if (fd_ < 0) {
         LOG_ERROR(Frontend, "shm frame ring \"{}\": shm_open failed", name);
         return false;
@@ -79,7 +86,7 @@ void ShmFrameRing::Close() {
     if (fd_ >= 0) {
         close(fd_);
         fd_ = -1;
-        shm_unlink(name_.c_str()); // the viewer keeps its own mapping alive
+        shm_unlink(ShmName(name_).c_str()); // the viewer keeps its own mapping alive
     }
     size_ = 0;
     in_flight_.store(false, std::memory_order_release);

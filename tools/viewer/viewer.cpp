@@ -174,7 +174,11 @@ Viewer::~Viewer() {
 // ---------------------------------------------------------------------------
 
 void Viewer::open_ring(Seat& seat) {
-    const QByteArray name = seat.ring_name.toUtf8();
+    // POSIX wants the leading slash; the session passes the plain name.
+    QByteArray name = seat.ring_name.toUtf8();
+    if (!name.startsWith('/')) {
+        name.prepend('/');
+    }
     const int fd = shm_open(name.constData(), O_RDONLY, 0);
     if (fd < 0) {
         if (!seat.missing_reported) {
@@ -581,11 +585,23 @@ void Viewer::send_input(int seat, quint8 type, quint32 key, quint16 x, quint16 y
 
     // The instance owns the socket; if it is not up yet (still booting) the
     // datagram is simply dropped.
-    const int fd = ::socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    const int fd = ::socket(AF_UNIX, SOCK_DGRAM, 0);
     if (fd < 0) {
         return;
     }
-    ::sendto(fd, &message, sizeof(message), MSG_DONTWAIT | MSG_NOSIGNAL,
+    // SOCK_CLOEXEC is a Linux-only socket() flag and MSG_NOSIGNAL has no macOS
+    // equivalent: fcntl plus main's ignored SIGPIPE cover both platforms.
+    ::fcntl(fd, F_SETFD, FD_CLOEXEC);
+    const int flags = ::fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) {
+        ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    }
+#ifdef MSG_NOSIGNAL
+    constexpr int kSendFlags = MSG_DONTWAIT | MSG_NOSIGNAL;
+#else
+    constexpr int kSendFlags = MSG_DONTWAIT;
+#endif
+    ::sendto(fd, &message, sizeof(message), kSendFlags,
              reinterpret_cast<sockaddr*>(&address), sizeof(address));
     ::close(fd);
 }

@@ -15,7 +15,13 @@
 #include <QScreen>
 #include <QSurfaceFormat>
 
+#include <csignal>
+
 int main(int argc, char* argv[]) {
+    // A seat that exits while input is still flowing must not take the viewer
+    // down with a SIGPIPE; send_input already ignores the failure.
+    std::signal(SIGPIPE, SIG_IGN);
+
     // A compositor that misses a frame callback for longer than Qt's default
     // timeout inexposes the window and Qt stops painting it for good. The viewer
     // paces itself with its own timer, so it must not depend on that handshake;

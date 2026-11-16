@@ -173,6 +173,12 @@ touch are playability polish and may slip to Milestone 4.
       `--effects-tilt`); closing the app window left zero orchestrator/room/seat/emulator/
       viewer processes, zero rings and zero audio streams. History (41),
       `docs/evidence/app-one-window.txt`.
+- [x] **One window after Start** (2026-11-16): the picker hides as soon as a session starts,
+      so the session window is the only one on screen, and `Session::viewer_gone()` plus a
+      watcher thread makes closing that window end the app (session dropped, orchestrator
+      exits). Verified in one app-driven run: one window, 60 fps both seats, both streams on
+      the sink, and the window-close quit left nothing behind. History (42),
+      `docs/evidence/app-one-window.txt`.
 - [x] **P3 follow-up — touch proven**: a tap at frame (440,195) on seat A's
       bottom screen took seat A from MK7's title into a single-player race
       (change 166/255) while seat B stayed at the title (0.01–0.04). Two bugs

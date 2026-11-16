@@ -64,6 +64,11 @@ fn start_session(
     };
     let summary = session.summary.clone();
     *guard = Some(session);
+    // One window: the session window owns the session from here, so the picker stops
+    // being a window at all rather than sitting behind the composite.
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
     Ok(summary)
 }
 
@@ -294,6 +299,28 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while building the Azahar Splitscreen orchestrator");
+
+    // The session window owns the session: when it closes, the room, every seat and the
+    // orchestrator go with it. Polled from a thread because a hidden picker leaves the
+    // event loop with nothing to do.
+    let handle = app.handle().clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let state = handle.state::<AppState>();
+        let viewer_gone = match state.session.lock() {
+            Ok(mut guard) => guard
+                .as_mut()
+                .map(|session| session.viewer_gone())
+                .unwrap_or(false),
+            Err(_) => false,
+        };
+        if viewer_gone {
+            let session = state.session.lock().ok().and_then(|mut guard| guard.take());
+            drop(session);
+            handle.exit(0);
+            return;
+        }
+    });
 
     app.run(|app, event| {
         // Quitting the window must take the room and every instance with it.

@@ -1783,7 +1783,39 @@ then exits. Eight seconds later `pgrep` found no orchestrator, room, seat, emula
 `/dev/shm/azsh-*` was empty and PipeWire had no `Stream/Output/Audio` nodes. The shared-memory
 rings are released by the same teardown.
 
-**Observed, kept as-is:** the launcher window stays open behind the session window (the
-viewer covers the work area) and closing it is the quit path - it is not hidden on Start. And
-the one sink is fed by two streams rather than one process mixing, because each seat renders
-its own audio and the device sums them.
+**Observed, kept as-is:** the one sink is fed by two streams rather than one process mixing,
+because each seat renders its own audio and the device sums them. (The launcher window that
+sat behind the session in this run was closed in (42): the picker now hides on Start and the
+session window is the quit path.)
+## 2026-11-16 (42) - The picker hands over: one window owns the session
+
+Entry (41) ended with a caveat: after Start the picker stayed open behind the composite, and
+only closing the picker quit. That is a second window, and the wrong one to quit from. This
+pass moved the session's ownership to the session window.
+
+**Two changes, nothing else.** `start_session` hides the picker once the session is up, so
+after Start the window list holds one `Azahar Splitscreen` entry. And
+`Session::viewer_gone()` plus a watcher thread in `main.rs` (500 ms poll, because a hidden
+picker leaves the event loop idle) turns the session window closing into the app quitting:
+the session is dropped - room, seats and viewer terminated - then `app.exit(0)`. Escape in the
+viewer already closes the window, so that is a quit as well. No audio, input, save or render
+path was touched.
+
+**The run** (all three binaries rebuilt first; launched from the repo root with no arguments;
+Mario Kart 7 picked in the window, Players left at 2, Start clicked in that window):
+
+- after Start, one window: `0x0280000d`, the composite; the picker `0x01600003` is gone from
+  the window list;
+- orchestrator 40771, room 40958, seats 40962/41037, viewer 41266, rings `azsh-40771-{1,2}`,
+  room `127.0.0.1:33137`, `area: 1920x1034`;
+- 155 s after Start both seats read `fps=60.0 speed=100.3` (frame 5.69 / 5.33 ms) and
+  `app-session-window.png` shows both at MK7's menu in that one window;
+- audio: node 79 from pid 40962 (`slots/p1/user`) and node 77 from pid 41037
+  (`slots/p2/user`, `--effects-tilt`), both into the default sink; 8.97 s of the sink monitor
+  at L/R -12.6 dBFS;
+- quit: closing the session window left no orchestrator, room, seat, emulator or viewer
+  process, no `/dev/shm/azsh-*`, no `Stream/Output/Audio` nodes, and only the user's own
+  windows on screen.
+
+The launcher-behind-session caveat in (41) is gone. The mix still reaches full scale with two
+consoles at the owner's 0.75 sink volume; that headroom work was out of scope here.

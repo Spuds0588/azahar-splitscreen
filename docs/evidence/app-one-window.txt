@@ -1,74 +1,64 @@
 One launch, one window: start, run and stop a two-seat session from the app
 ==========================================================================
 
-What was run (2026-11-16)
--------------------------
+What was run (2026-11-16; second run, after the window handover was added)
+--------------------------------------------------------------------------
 All three binaries were rebuilt first (`ninja -C tools/viewer/build`,
-`cmake --build build --target azahar`, `cargo build --release`, all exit 0), then the app was
-started the way a user starts it, from the repo root:
+`cmake --build build --target azahar`, `cargo build --release`, all exit 0), then, from the
+repo root:
 
     DISPLAY=:1 ./src-tauri/target/release/azahar-splitscreen          # no arguments
 
-No `--start`, no second session and no scratch console were used at any point in this run.
+No `--start`, no second session and no scratch console were used.
 
-The window (0x01600003, 900x640 at +509+211) showed the picker with the ROM list from
-`Test Roms/`. Mario Kart 7 was selected in the Game dropdown by typing into the native
-select, Players stayed at 2, and Start was clicked at window (232,270). Capture:
-`docs/evidence/app-picker.png`.
+Before Start there is the picker (0x01600003, 900x640 at +509+211): Mario Kart 7 selected in
+the Game dropdown, Players left at 2, Start clicked at window (232,270).
 
-What the one window did
------------------------
-`slots/session.log` after Start:
+One window after Start
+----------------------
+`wmctrl -l` immediately after Start lists exactly one session window:
 
-    rom: .../Test Roms/Mario Kart 7 (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) Decrypted.3ds
-    players: 2, area: 1920x1034
-    room: 127.0.0.1:47207
-    room: open
-    viewer grid: 2x1 cells of 959x1034
-    Player 1: spawned headless, ring azsh-35570-1, socket .../Player 1.sock, ...
-    Player 2: spawned headless, ring azsh-35570-2, socket .../Player 2.sock, ...
-    viewer: one window compositing all seats
+    0x0280000d  Azahar Splitscreen        (the viewer, compositing both seats)
+    (the picker 0x01600003 is no longer listed: it is hidden, not closed)
 
-Processes while running: orchestrator 35570, room 36122, seats 36126 and 36210, viewer
-36437; two rings `/dev/shm/azsh-35570-{1,2}`.
+That is the change this pass made. `start_session` hides the picker once the session is up,
+and `Session::viewer_gone()` with a 500 ms watcher thread in `main.rs` makes the session
+window the thing that owns the session.
 
-Speed, sampled 140 s after Start (MK7 spends ~90-120 s on its network boot and ignores
-input there, so this is the main menu):
+Session state from `slots/session.log` and `pgrep`: room `127.0.0.1:33137`, `area:
+1920x1034`, `viewer grid: 2x1 cells of 959x1034`, orchestrator 40771, room 40958, seats 40962
+and 41037, viewer 41266, rings `/dev/shm/azsh-40771-{1,2}`.
 
-    Player 1: fps=60.0 speed=100.3 frame_ms=4.91
-    Player 2: fps=60.0 speed=99.6  frame_ms=4.99
+Speed, sampled 155 s after Start (MK7 spends ~90-120 s on its network boot and ignores input
+there, so this is its main menu):
 
-`docs/evidence/app-session-window.png` is that window: P1 and P2 side by side, both at
-Mario Kart 7's main menu, in one 1920x1034 composite.
+    Player 1: fps=60.0 speed=100.3 frame_ms=5.69
+    Player 2: fps=60.0 speed=100.3 frame_ms=5.33
 
-Audio on the one output
------------------------
-Two streams on the default sink, one per seat, owned by that seat's process:
+`docs/evidence/app-session-window.png` is that window: P1 and P2 side by side at the menu.
 
-    77 Azahar Output pid=36126 -> slots/p1/user   (no --effects-tilt)
-    79 Azahar Output pid=36210 -> slots/p2/user   (--effects-tilt)
-
-8.98 s of the sink monitor during the menu: L -12.4 dBFS, R -12.3 dBFS, peak 32768, with
-the sink at 0.75 (the owner's setting). The peak reaching full scale with two consoles
-mixed is real; the four-seat headroom question is out of scope for this pass.
-
-Quitting from the app
+Audio on the one sink
 ---------------------
-The app window was closed with `wmctrl -ic 0x01600003` - an ordinary window close, which the
-orchestrator handles as quit (drop the session, which terminates the room, every seat and
-the viewer, then exit). Eight seconds later:
+    node 79  Azahar Output  pid=40962  -> slots/p1/user   (no --effects-tilt)
+    node 77  Azahar Output  pid=41037  -> slots/p2/user   (--effects-tilt)
 
-    pgrep -af "azahar-splitscreen|azahar-room|azahar --user|azahar-viewer"   -> nothing
-    ls /dev/shm/azsh-*                                                       -> nothing (0)
-    PipeWire Stream/Output/Audio nodes                                       -> 0
+8.97 s of the sink monitor during the menu: L -12.6 dBFS, R -12.6 dBFS, peak 32768, with the
+sink at 0.75 (the owner's setting). Two consoles mixed reach full scale; the four-seat
+headroom question is out of scope for this pass.
+
+Quitting from the session window
+--------------------------------
+Closing the session window (`wmctrl -ic 0x0280000d`; the same event as Escape in the viewer
+or the titlebar close) ends the app. Ten seconds later:
+
+    pgrep -af "azahar-splitscreen|azahar-room|azahar --user|azahar-viewer"  -> nothing
+    ls /dev/shm/azsh-*                                                      -> nothing (0)
+    PipeWire Stream/Output/Audio nodes                                      -> 0
     wmctrl -l                                          -> only the user's own windows
 
-Nothing needed repairing: the single-window path started, ran and stopped the session on the
-first attempt.
+So the session window owns the session in both directions: it is the only window once a
+session starts, and closing it takes the viewer, the room, both seats, their emulators and
+the orchestrator with it.
 
-Observed, not changed
----------------------
-- The launcher window stays open behind the session window (the viewer covers the work area,
-  1920x1034); closing it is the quit path. It is not hidden when the session starts.
-- Two streams feed the one sink rather than one process mixing: each seat renders its own
-  audio and the device sums them (the tilt is applied per seat in the audio core).
+The launcher-behind-session caveat recorded in the previous run of this file no longer
+applies: the picker is not a second window while a session runs, and it is not the quit path.

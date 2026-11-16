@@ -46,6 +46,16 @@ impl Session {
             .any(|child| matches!(child.try_wait(), Ok(None)))
     }
 
+    /// True once the one window has closed. Closing it is how the app is left, so the
+    /// orchestrator takes it as the end of the session rather than a missing child.
+    pub fn viewer_gone(&mut self) -> bool {
+        match self.viewer.as_mut() {
+            Some(viewer) => matches!(viewer.try_wait(), Ok(Some(_))),
+            // No viewer at all: the seats are the session (the headless fallback).
+            None => false,
+        }
+    }
+
     /// Restart a seat whose ring stopped advancing: a crash, or a hang the game
     /// never comes back from. The ring and socket keep their names, so the
     /// viewer re-attaches and the seat rejoins the room on its own.

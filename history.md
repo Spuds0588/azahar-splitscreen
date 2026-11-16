@@ -2043,5 +2043,7 @@ grid of top screens; `retro_unload_game` left 0 processes and 0 rings. Then Retr
 loaded the core and drew the boot menu (this session is Wayland, so its keys cannot be injected
 from outside, which is why Start was exercised through the harness rather than the frontend).
 
-Open ends, recorded in `todo.md`: the core's audio callback sends silence (each seat keeps its own
-output device), and 4-6 seats have only been proven through the window, not through the core.
+Six seats were then run through the same harness: four right presses on the menu spawned P1-P6,
+all six booted into a 3x2 grid of action screens, and the unload left nothing behind either. The
+one open end, recorded in `todo.md`, is audio: the core's callback sends silence because each seat
+keeps its own output device.

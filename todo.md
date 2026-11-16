@@ -330,8 +330,8 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **RetroArch core** (2026-11-16): `src/citra_libretro_split` builds a launcher core - boot
       menu picks 2-6 players, then it spawns `azahar-room` and one headless seat per player,
       composites their rings and routes RetroPad port N to seat N (history (49)). Verified with a
-      harness frontend at 2 and 3 players plus a RetroArch load of the boot menu. Open ends: audio
-      still comes from the seats' own devices, and 4-6 seats have not been run through the core.
+      harness frontend at 2, 3 and 6 players plus a RetroArch load of the boot menu. Open end:
+      audio still comes from the seats' own devices.
 - [ ] **Core audio**: the core sends silence because each seat opens its own device; a
       `--shm-audio` ring would let the core own the single stream.
 - [ ] **Save states**: not implemented anywhere in the app - seats are headless and no

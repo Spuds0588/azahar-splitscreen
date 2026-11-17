@@ -334,6 +334,13 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **Core audio** (2026-11-17): the seats write into a `--shm-audio` ring
       (`src/audio_core/shm_audio.h`) instead of opening devices, and the core sums them into
       RetroArch's audio callback at 1/sqrt(players), 32728 Hz (history (50)).
+- [x] **Audio heard through RetroArch** (2026-11-17): a rebuilt core inside RetroArch 1.20.0
+      (headless, PipeWire sink) played both MK7 seats, its volume keys moved the measured level
+      (-23 dB over 40 presses) and mute gave exact silence, with no gap >= 100 ms across three
+      minutes and a clean `CLOSE_CONTENT` (history (51)).
+- [ ] **Ring supply vs. declared rate**: seats produce ~31.7k frames/s against the 32728 Hz the
+      core advertises (~97%), which RetroArch hides by resampling - measure whether that is the
+      DSP clock or the ring reader pacing before it becomes an audible pitch offset.
 - [x] **Seat failure on the TV** (2026-11-17): a seat that cannot boot (encrypted or unreadable
       dump) or exits before its first frame is reported in words on its tile, from its own logs
       (history (50)).

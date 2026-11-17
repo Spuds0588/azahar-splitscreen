@@ -2087,3 +2087,52 @@ itself at 60 Hz and counts the audio it is handed:
 
 Not done: there is no way to hear one seat instead of the mix (recorded in `todo.md`), and the
 windowed app still lets each seat open a device.
+
+## 2026-11-17 (51) - Heard through RetroArch: volume, mute and three minutes of it
+
+The core had only ever been measured by counting frames it handed a throwaway harness. This is the
+first time the sound was checked where it will actually be listened to - RetroArch's own mixer,
+onto a real sink - and the first time anything was driven by RetroArch's network command interface
+rather than a mock frontend.
+
+Built for it: `build/bin/Release/azahar`, `azahar-room` and
+`build/src/citra_libretro_split/azahar_splitscreen_libretro.so` (Release, ccache, `EXIT=0`).
+RetroArch 1.20.0 loaded the core with `video_driver=null`, `input_driver=null` (no window on this
+box - `gl`, `glcore`, `vulkan` and `sdl2` all fail before the runloop, and `--menu` alone hangs, so
+the culprit is the host's display, not the core). The core advertised `1280x720, FPS: 60.00,
+Sample rate: 32728.00 Hz` and RetroArch ran its PipeWire stream at 48 kHz on
+`alsa_output.pci-0000_00_1f.3.analog-stereo`. Measurements come from that sink's monitor
+(`pw-cat --record --raw --target 54`), not the microphone - the earlier full-scale captures were
+the mic, which is why they looked healthy while the session was silent.
+
+The seats were silent at first for a reason worth knowing: a fresh slot has no Mii, so MK7 stops on
+"there are currently no Mii characters in Mii Maker" and the rings are zeros (`write_frames` still
+climbing, RMS 0). Pressing A through the seat's own input socket (`struct.pack('<B3xIHH', 1, 65)`,
+AF_UNIX datagram) dismissed it and the music started: rings at RMS 4749 and 6016, peak ~25,800, and
+the sink capture at RMS ~3,300-3,900. Note the seat socket path must stay under the 108-byte AF_UNIX
+limit; a save directory nested under `.freebuff/ra-test/saves/Azahar Splitscreen/...` silently
+leaves the seat without a socket, so this run used `/tmp/rs`.
+
+- **Volume**: 40x `VOLUME_DOWN` over the network interface took the capture from RMS 3307 to 231
+  (-23 dB measured; RetroArch logged its own -20 dB in 0.5 dB steps) and 40x `VOLUME_UP` brought it
+  back to 3001 with the log at 0.0 dB.
+- **Mute**: `MUTE` gave exact digital silence (RMS 0, peak 0) for the whole window; unmuting
+  restored RMS 2900 instantly.
+- **Three minutes**: final window 640-820 s at RMS 3379, longest digital silence 60 ms, no quiet
+  run >= 100 ms, zero underrun/audio-error lines in RetroArch's log, both seats at 60.0 fps
+  (100.3%) throughout. Two earlier windows were also continuous but ran at 62-82% speed because an
+  unrelated `rustc` (the owner's melonDS build, 359% CPU) owned the box; audio stayed gap-free
+  there too, which is RetroArch resampling rather than dropping.
+- **Supply**: the rings produced 31.6-31.7k frames/s against the 32,728 Hz the core declares
+  (~97%), with the writer counting every frame it writes, so this is production and not ring
+  overflow. Recorded in `todo.md` as a pitch/clock question, not a dropout.
+
+Teardown: `CLOSE_CONTENT` stopped the session cleanly - 0 seat processes, 0 room processes, 0
+`/dev/shm/azsh*` rings. `QUIT` and SIGTERM do not exit a null-video RetroArch on this host (the
+process survives both), so the test instance had to be killed; that is the same host problem that
+stops a window from opening, and the app's own quit path is unaffected.
+
+The session was started with a temporary `AZAHAR_SPLITS_AUTOSTART` hook in `core.cpp` - the same
+`start_session` call the Start button makes, because no input reaches a core without a video
+window. It was reverted and the core rebuilt afterwards (`EXIT=0`); the shipped core still loads in
+RetroArch (VERSION 1.20.0, 1280x720/60/32728) and waits at its boot menu.

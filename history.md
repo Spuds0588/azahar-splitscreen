@@ -2136,3 +2136,36 @@ The session was started with a temporary `AZAHAR_SPLITS_AUTOSTART` hook in `core
 `start_session` call the Start button makes, because no input reaches a core without a video
 window. It was reverted and the core rebuilt afterwards (`EXIT=0`); the shipped core still loads in
 RetroArch (VERSION 1.20.0, 1280x720/60/32728) and waits at its boot menu.
+
+## 2026-11-17 (52) - Six seats, a frozen seat and a second game through RetroArch
+
+Follow-up run after (51) went to `origin/master`, testing the parts a single happy-path capture could
+not: where the mix comes from, what pause does, what a lost seat does, and whether a different game
+behaves. Built the same three binaries again (`EXIT=0`) and drove RetroArch 1.20.0 headless, this
+time measuring the live tail of the sink monitor instead of slicing by wall-clock markers - the
+`pw-cat` file lags the markers by a second or two, which is what made the first pass look like
+"pause does nothing" and "the mix survives a frozen seat".
+
+- **The 32728 Hz question is closed.** At 60.0 fps the two rings delivered 32,682 and 32,738
+  frames/s. The ~97% in (51) was the owner's melonDS build (334% CPU) slowing the seats during the
+  early minutes of that window, not a clock mismatch.
+- **The mix is exactly the seat rings.** Freezing seat 2 with SIGSTOP (so its ring stops being
+  written, confirmed 0 writes while frozen) dropped the sink from RMS 3427 to 2474 - a ratio of
+  0.65 against the 1/sqrt(2)=0.71 the gain implies - and freezing both gave RMS 0, peak 0, 100%
+  zero frames. Resuming restored the level. Nothing but the rings reaches RetroArch's output.
+- **Pause is real.** `PAUSE_TOGGLE` gave exact digital silence (RMS 0) for as long as it was held,
+  and toggling back restored RMS 3177.
+- **A killed seat degrades, it does not stop the session.** SIGKILL on seat 2 left its process as a
+  zombie and its rings in `/dev/shm` until the session ended; seat 1 kept playing into the sink.
+  `CLOSE_CONTENT` then reaped the zombie and removed every ring and socket - 0 processes, 0 rings.
+  (Worth knowing for the tile logic: the frozen ring drains to silence, it does not loop.)
+- **Six seats.** All six rings live (RMS 4.9k-9.0k), 180 s window: sink RMS 3409 with 8 blocks of
+  digital silence totalling 160 ms (longest 80 ms) and zero underrun lines, while the box ran at
+  load 19 from the owner's melonDS session and the seats fell to 23-41 fps. Teardown left 0 seats,
+  0 room processes, 0 rings, 0 sockets.
+- **Monster Hunter Stories.** Boots to a silent "No extra data found" dialog like MK7's Mii one;
+  after A it produced real audio (rings RMS 348, sink RMS 1392, peak 19002) at 11 fps under the same
+  load. The core and the sink path are not MK7-specific.
+
+The test hook was reverted and the core rebuilt again (`EXIT=0`); the shipped tree is unchanged
+apart from this entry and the todo correction.

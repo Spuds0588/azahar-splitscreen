@@ -73,8 +73,10 @@ cores/azahar_splitscreen_libretro.so plugs into RetroArch:
 Boot the core, choose 2-6 players with left/right, press Start. It spawns
 azahar-room and one headless emulator per player from this folder (set
 AZAHAR_SPLITS_ROOT if the core lives elsewhere) and tiles them in the core's
-frame, one RetroPad per player. Sound still comes from each seat's own audio
-device rather than RetroArch.
+frame, one RetroPad per player. Sound comes out of RetroArch itself, so its
+volume and mute work; the seats write into a shared-memory ring instead of
+opening devices of their own. A player that cannot boot (an encrypted dump, a
+seat that exits) says so in words on its tile.
 
 Not affiliated with or endorsed by Nintendo. No ROMs, keys or NAND dumps are
 included.

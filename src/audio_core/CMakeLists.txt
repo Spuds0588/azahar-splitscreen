@@ -32,6 +32,8 @@ add_library(audio_core STATIC EXCLUDE_FROM_ALL
     null_input.h
     null_sink.h
     precompiled_headers.h
+    shm_audio.cpp
+    shm_audio.h
     sink.h
     sink_details.cpp
     sink_details.h

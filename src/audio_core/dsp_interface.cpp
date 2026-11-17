@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <vector>
 #include "audio_core/dsp_interface.h"
+#include "audio_core/null_sink.h"
+#include "audio_core/shm_audio.h"
 #include "audio_core/sink.h"
 #include "audio_core/sink_details.h"
 #include "common/assert.h"
@@ -34,7 +36,13 @@ void DspInterface::SetSink(AudioCore::SinkType sink_type, std::string_view audio
     // Dispose of the current sink first to avoid contention.
     sink.reset();
 
-    sink = AudioCore::GetSinkDetails(sink_type).create_sink(audio_device);
+    // A frontend that asked for the audio ring owns the only device, so the
+    // seat must not open one of its own.
+    if (AudioCore::GetShmAudioRing()) {
+        sink = std::make_unique<NullSink>("None");
+    } else {
+        sink = AudioCore::GetSinkDetails(sink_type).create_sink(audio_device);
+    }
     sink->SetCallback(
         [this](s16* buffer, std::size_t num_frames) { OutputCallback(buffer, num_frames); });
     time_stretcher.SetOutputSampleRate(sink->GetNativeSampleRate());
@@ -107,7 +115,11 @@ void DspInterface::PushSamples(std::span<const std::array<s16, 2>> samples) {
         return;
     }
 
-    if (sink->ImmediateSubmission()) {
+    if (const auto ring = AudioCore::GetShmAudioRing(); ring && ring->IsOpen()) {
+        // Straight to the ring at the native rate: the reader resamples, so the
+        // FIFO and the device-driven callback stay out of the way.
+        ring->Push(reinterpret_cast<const s16*>(samples.data()), samples.size());
+    } else if (sink->ImmediateSubmission()) {
         sink->PushSamples(samples.data(), samples.size());
     } else {
         fifo.Push(samples.data(), samples.size());

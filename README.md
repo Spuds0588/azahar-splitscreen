@@ -103,9 +103,14 @@ Or configure the main tree with `-DENABLE_LIBRETRO_SPLIT=ON`, which adds the cor
   working directory, so a beta bundle's `cores/` folder works as-is.
 - Per player: A/B/X/Y, D-pad, Start, Select, L3 = L, R = R, L2 = ZL, R2 = ZR, left stick = circle
   pad, right stick = touch pointer, R3 taps, and holding L shows that player's touch screen.
-- Each seat keeps its own audio device, so sound comes from the system mixer rather than
-  RetroArch's audio callback, which receives silence. Session slots, logs and sockets land in
-  RetroArch's save directory under `azahar-splitscreen/`.
+- **One audio stream**: the seats open no audio device. Each writes interleaved stereo into its
+  own shared-memory ring (`--shm-audio`, `src/audio_core/shm_audio.h`) at the 3DS's native
+  32728 Hz, and the core sums those rings into RetroArch's audio callback at 1/sqrt(players), so
+  RetroArch's volume, mute and recorder apply to the whole couch. Session slots, logs and sockets
+  land in RetroArch's save directory under `azahar-splitscreen/`.
+- **A missing seat says why**: a dump that cannot boot (still encrypted, unreadable) or a seat
+  that exits before its first frame is reported in words on that player's tile, read from the
+  seat's own logs, instead of leaving a black square.
 
 ## Build and run
 

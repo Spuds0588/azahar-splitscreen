@@ -330,10 +330,16 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **RetroArch core** (2026-11-16): `src/citra_libretro_split` builds a launcher core - boot
       menu picks 2-6 players, then it spawns `azahar-room` and one headless seat per player,
       composites their rings and routes RetroPad port N to seat N (history (49)). Verified with a
-      harness frontend at 2, 3 and 6 players plus a RetroArch load of the boot menu. Open end:
-      audio still comes from the seats' own devices.
-- [ ] **Core audio**: the core sends silence because each seat opens its own device; a
-      `--shm-audio` ring would let the core own the single stream.
+      harness frontend at 2, 3 and 6 players plus a RetroArch load of the boot menu.
+- [x] **Core audio** (2026-11-17): the seats write into a `--shm-audio` ring
+      (`src/audio_core/shm_audio.h`) instead of opening devices, and the core sums them into
+      RetroArch's audio callback at 1/sqrt(players), 32728 Hz (history (50)).
+- [x] **Seat failure on the TV** (2026-11-17): a seat that cannot boot (encrypted or unreadable
+      dump) or exits before its first frame is reported in words on its tile, from its own logs
+      (history (50)).
+- [ ] **Core audio focus**: the mix is every seat at 1/sqrt(players); a couch that finds six
+      games at once muddy needs a choice (all / one player), and the windowed app could adopt the
+      same ring instead of each seat opening a device.
 - [ ] **Save states**: not implemented anywhere in the app - seats are headless and no
       save-state hotkey is forwarded. Save *data* sets are the supported management path.
 - [ ] **Save-set integrity**: after importing a set, MK7 says "The save data is corrupted

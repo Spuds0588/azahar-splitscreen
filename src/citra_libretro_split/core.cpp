@@ -13,8 +13,12 @@
 // Two consequences worth knowing:
 //   * The core needs the emulator binaries beside it (a beta bundle, or
 //     AZAHAR_SPLITS_ROOT pointing at one); see find_install().
-//   * Each seat still opens its own audio device, so sound comes out of the
-//     system mixer rather than RetroArch's audio callback, which sends silence.
+//   * Each seat writes its audio into a shared-memory ring (`--shm-audio`) instead
+//     of opening a device, and this core mixes those rings into RetroArch's audio
+//     callback: one stream, one volume, one recorder.
+//   * A seat that never draws a frame says why on its tile, reading the loader's
+//     verdict out of the seat's own log (an encrypted dump, an unreadable game)
+//     or reporting that the process exited before its first frame.
 
 #include "libretro.h"
 
@@ -32,6 +36,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -58,10 +64,16 @@ retro_log_printf_t log_cb = nullptr;
 // ---------------------------------------------------------------------------
 
 constexpr uint32_t kMagic = 0x48535A41; // 'AZSH'
+constexpr uint32_t kAudioMagic = 0x41535A41; // 'AZSA'
 constexpr size_t kHeaderBytes = 64;
 constexpr uint32_t kMaxPlayers = 6;
 constexpr unsigned kWidth = 1280;
 constexpr unsigned kHeight = 720;
+/// Seats mix at the 3DS's native rate (audio_core/audio_types.h).
+constexpr unsigned kAudioRate = 32728;
+/// One video frame's worth of audio at that rate (the rate does not divide by
+/// 60, so the exact count is carried between calls), plus slack.
+constexpr size_t kAudioFrames = kAudioRate / 60 + 2;
 
 struct RingHeader {
     uint32_t magic;
@@ -78,6 +90,19 @@ struct RingHeader {
 };
 static_assert(sizeof(RingHeader) == kHeaderBytes, "ring header layout changed");
 
+/// Mirrored from src/audio_core/shm_audio.h: interleaved stereo PCM16.
+struct AudioRingHeader {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t sample_rate;
+    uint32_t channels;
+    uint32_t capacity_frames;
+    uint32_t reserved;
+    uint64_t write_frames;
+    uint64_t reserved2[4];
+};
+static_assert(sizeof(AudioRingHeader) == kHeaderBytes, "audio ring header layout changed");
+
 /// The 12-byte input datagram the seats listen for (src/citra_qt/input_socket.h).
 struct InputMessage {
     uint8_t type;
@@ -93,6 +118,20 @@ struct Seat {
     std::string ring_name;
     std::string socket_path;
     std::string user_dir;
+    std::string log_path;
+    std::string log_label;
+
+    std::string audio_ring_name;
+    int audio_fd = -1;
+    uint8_t* audio_base = nullptr;
+    size_t audio_size = 0;
+    uint32_t audio_capacity = 0;
+    uint64_t audio_read = 0;
+
+    /// Why this seat never appeared; drawn on its tile once known.
+    std::string failure;
+    double started = 0;
+    double last_probe = 0;
 
     int fd = -1;
     uint8_t* base = nullptr;
@@ -257,6 +296,34 @@ std::string save_dir() {
 std::string dirname_of(const std::string& path) {
     const size_t slash = path.find_last_of('/');
     return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
+}
+
+double now_seconds() {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+/// The end of a log file. Seat logs stay small, but a stall detector must never
+/// pull a runaway log into a frame callback.
+std::string read_tail(const std::string& path, size_t limit = 65536) {
+    FILE* file = fopen(path.c_str(), "rb");
+    if (file == nullptr) {
+        return {};
+    }
+    std::string text;
+    if (fseek(file, 0, SEEK_END) == 0) {
+        const long size = ftell(file);
+        const long start = size > static_cast<long>(limit) ? size - static_cast<long>(limit) : 0;
+        if (fseek(file, start, SEEK_SET) == 0) {
+            char buffer[8192];
+            size_t got = 0;
+            while ((got = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+                text.append(buffer, got);
+            }
+        }
+    }
+    fclose(file);
+    return text;
 }
 
 std::string exe_dir() {
@@ -451,6 +518,85 @@ void close_rings() {
     }
 }
 
+void close_audio_rings() {
+    for (auto& seat : seats) {
+        if (seat.audio_base != nullptr) {
+            munmap(seat.audio_base, seat.audio_size);
+            seat.audio_base = nullptr;
+        }
+        if (seat.audio_fd >= 0) {
+            close(seat.audio_fd);
+            seat.audio_fd = -1;
+        }
+        seat.audio_size = 0;
+        seat.audio_capacity = 0;
+        seat.audio_read = 0;
+    }
+}
+
+/// The seat creates its ring before it boots, so the first probe can miss it.
+bool open_audio_ring(Seat& seat) {
+    if (seat.audio_base != nullptr || seat.audio_ring_name.empty()) {
+        return seat.audio_base != nullptr;
+    }
+    const int fd = shm_open(("/" + seat.audio_ring_name).c_str(), O_RDONLY, 0);
+    if (fd < 0) {
+        return false;
+    }
+    struct stat info {};
+    if (fstat(fd, &info) != 0 || info.st_size < static_cast<off_t>(kHeaderBytes)) {
+        close(fd);
+        return false;
+    }
+    auto* base = static_cast<uint8_t*>(
+        mmap(nullptr, static_cast<size_t>(info.st_size), PROT_READ, MAP_SHARED, fd, 0));
+    if (base == MAP_FAILED) {
+        close(fd);
+        return false;
+    }
+    const auto* header = reinterpret_cast<const AudioRingHeader*>(base);
+    if (header->magic != kAudioMagic || header->channels != 2 || header->capacity_frames == 0) {
+        munmap(base, static_cast<size_t>(info.st_size));
+        close(fd);
+        return false;
+    }
+    seat.audio_fd = fd;
+    seat.audio_base = base;
+    seat.audio_size = static_cast<size_t>(info.st_size);
+    seat.audio_capacity = header->capacity_frames;
+    return true;
+}
+
+/// Copy up to `frames` new frames into `mix`, scaling by `gain`.
+size_t pull_audio(Seat& seat, int32_t* mix, size_t frames, float gain) {
+    if (seat.audio_base == nullptr) {
+        return 0;
+    }
+    const auto* header = reinterpret_cast<const AudioRingHeader*>(seat.audio_base);
+    const uint64_t write = __atomic_load_n(&header->write_frames, __ATOMIC_ACQUIRE);
+    const uint32_t capacity = seat.audio_capacity;
+    if (capacity == 0) {
+        return 0;
+    }
+    if (write < seat.audio_read) {
+        seat.audio_read = write; // the seat restarted its ring under us
+    }
+    // Half a ring of slack. Past that the reader is behind: lose the oldest
+    // audio rather than play a session's worth of delay.
+    if (write - seat.audio_read > capacity / 2) {
+        seat.audio_read = write - capacity / 2;
+    }
+    const size_t want = std::min<uint64_t>(write - seat.audio_read, frames);
+    const auto* samples = reinterpret_cast<const int16_t*>(seat.audio_base + kHeaderBytes);
+    for (size_t i = 0; i < want; ++i) {
+        const size_t at = static_cast<size_t>((seat.audio_read + i) % capacity) * 2;
+        mix[i * 2 + 0] += static_cast<int32_t>(samples[at + 0] * gain);
+        mix[i * 2 + 1] += static_cast<int32_t>(samples[at + 1] * gain);
+    }
+    seat.audio_read += want;
+    return want;
+}
+
 void stop_session() {
     for (auto& seat : seats) {
         terminate(seat.pid);
@@ -460,8 +606,12 @@ void stop_session() {
         if (!seat.ring_name.empty()) {
             shm_unlink(("/" + seat.ring_name).c_str());
         }
+        if (!seat.audio_ring_name.empty()) {
+            shm_unlink(("/" + seat.audio_ring_name).c_str());
+        }
     }
     close_rings();
+    close_audio_rings();
     seats.clear();
     terminate(room_pid);
 }
@@ -520,17 +670,24 @@ bool start_session(int players) {
     const int session_pid = static_cast<int>(getpid());
     for (int index = 0; index < players; ++index) {
         Seat& seat = seats[index];
-        seat.ring_name = "azsh-" + std::to_string(session_pid) + "-" + std::to_string(index + 1);
-        seat.socket_path = session_dir + "/Player " + std::to_string(index + 1) + ".sock";
+        const std::string name = "Player " + std::to_string(index + 1);
+        const std::string suffix = std::to_string(session_pid) + "-" + std::to_string(index + 1);
+        seat.ring_name = "azsh-" + suffix;
+        seat.audio_ring_name = "azsh-audio-" + suffix;
+        seat.socket_path = session_dir + "/" + name + ".sock";
         seat.user_dir = session_dir + "/p" + std::to_string(index + 1);
+        seat.log_path = session_dir + "/" + name + ".log";
+        seat.log_label = name + ".log";
+        seat.started = now_seconds();
+        seat.last_probe = seat.started;
         mkdir(seat.user_dir.c_str(), 0755);
         seat.pid = spawn_process(
             emulator,
-            {"--user", seat.user_dir, "--shm-frame", seat.ring_name, "--input-socket",
-             seat.socket_path, "--join-room", "127.0.0.1:" + std::to_string(port), "--player-name",
-             "Player " + std::to_string(index + 1), "--stats",
-             session_dir + "/Player " + std::to_string(index + 1) + ".fps", rom_path},
-            session_dir + "/Player " + std::to_string(index + 1) + ".log");
+            {"--user", seat.user_dir, "--shm-frame", seat.ring_name, "--shm-audio",
+             seat.audio_ring_name, "--input-socket", seat.socket_path, "--join-room",
+             "127.0.0.1:" + std::to_string(port), "--player-name", name, "--stats",
+             session_dir + "/" + name + ".fps", rom_path},
+            seat.log_path);
         if (seat.pid <= 0) {
             failure = "could not start azahar for player " + std::to_string(index + 1);
             stop_session();
@@ -639,6 +796,134 @@ Rect source_rect(const Seat& seat, bool peek, bool both) {
     return peek ? Rect{0, height - half, width, half} : Rect{0, 0, width, height - half};
 }
 
+const uint32_t kSeatColors[] = {0xF14B4B, 0x4B8BF1, 0x4BC96A,
+                                0xF1C24B, 0xB04BF1, 0x4BE1E1};
+
+void draw_tile_label(const Rect& tile, int index) {
+    const uint32_t color = kSeatColors[index % 6];
+    fill_rect(tile.x, tile.y, tile.w, 3, color);
+    draw_text(tile.x + 8, tile.y + 10, 3, color, "P" + std::to_string(index + 1));
+}
+
+/// Word-wrapped, centred, upper-case text inside a tile. A word longer than the
+/// tile (a file name) is split rather than clipped.
+void draw_wrapped_text(const Rect& area, const std::string& text, uint32_t color, int scale) {
+    const int limit = std::max(area.w - 40, 6 * scale);
+    const int per_line = std::max(1, limit / (6 * scale));
+    std::vector<std::string> words;
+    std::string word;
+    for (char ch : text) {
+        if (ch == ' ' || ch == '\n') {
+            if (!word.empty()) {
+                words.push_back(word);
+                word.clear();
+            }
+            continue;
+        }
+        word += static_cast<char>(toupper(static_cast<unsigned char>(ch)));
+    }
+    if (!word.empty()) {
+        words.push_back(word);
+    }
+
+    std::vector<std::string> lines;
+    std::string line;
+    for (const auto& each : words) {
+        for (size_t start = 0; start < each.size(); start += per_line) {
+            const std::string piece = each.substr(start, per_line);
+            const bool continues = start + per_line < each.size();
+            if (!line.empty() && text_width(line + " " + piece, scale) > limit) {
+                lines.push_back(line);
+                line = piece;
+            } else if (line.empty()) {
+                line = piece;
+            } else {
+                line += " " + piece;
+            }
+            if (continues) {
+                lines.push_back(line);
+                line.clear();
+            }
+        }
+    }
+    if (!line.empty()) {
+        lines.push_back(line);
+    }
+
+    const int line_height = 9 * scale;
+    int y = area.y + (area.h - static_cast<int>(lines.size()) * line_height) / 2;
+    for (const auto& each : lines) {
+        const int x = area.x + (area.w - text_width(each, scale)) / 2;
+        draw_text(x, y, scale, color, each);
+        y += line_height;
+    }
+}
+
+/// What a seat shows until its first frame: why it is not there, or that it is
+/// still booting.
+void draw_placeholder(const Seat& seat, int index, int count) {
+    const Rect tile = tile_rect(index, count);
+    fill_rect(tile.x, tile.y, tile.w, tile.h, 0x00181A20u);
+    draw_tile_label(tile, index);
+    const bool failed = !seat.failure.empty();
+    Rect area = tile;
+    area.y += 40;
+    area.h -= 40;
+    draw_wrapped_text(area, failed ? seat.failure : std::string("BOOTING"),
+                      failed ? 0x00F1A03Au : 0x008B93A7u, 2);
+}
+
+/// Read a seat's own logs until its first frame appears, so a dump that cannot
+/// boot says so on the TV instead of leaving a black tile.
+void probe_seat(Seat& seat, int index) {
+    if (!seat.failure.empty() || seat.last_seq != 0) {
+        return;
+    }
+    const double now = now_seconds();
+    if (now - seat.last_probe < 0.5) {
+        return;
+    }
+    seat.last_probe = now;
+
+    auto fail = [&seat](std::string reason) {
+        seat.failure = std::move(reason);
+        if (log_cb != nullptr) {
+            // The tile carries it too; the log is for bug reports and terminals.
+            log_cb(RETRO_LOG_ERROR, "Azahar Splitscreen: %s\n", seat.failure.c_str());
+        }
+    };
+
+    const std::string text = read_tail(seat.log_path) + read_tail(seat.user_dir + "/log/azahar_log.txt");
+    if (text.find("Encrypted applications are not supported") != std::string::npos ||
+        text.find("Failed to determine system mode") != std::string::npos) {
+        fail("THIS GAME DID NOT BOOT: STILL ENCRYPTED OR UNREADABLE. USE A DECRYPTED DUMP OR ADD THE "
+             "CONSOLE KEYS.");
+        return;
+    }
+    if (text.find("Failed to obtain loader") != std::string::npos) {
+        fail("THIS FILE IS NOT A GAME AZAHAR CAN READ. PICK A .3DS OR .CCI DUMP.");
+        return;
+    }
+    if (text.find("GBA Virtual Console is not supported") != std::string::npos) {
+        fail("GBA VIRTUAL CONSOLE TITLES ARE NOT SUPPORTED BY AZAHAR.");
+        return;
+    }
+    if (seat.pid > 0) {
+        int status = 0;
+        const pid_t done = waitpid(seat.pid, &status, WNOHANG);
+        if (done == seat.pid) {
+            const int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+            seat.pid = -1; // reaped: nothing left to signal
+            fail("PLAYER " + std::to_string(index + 1) + " EXITED (CODE " + std::to_string(code) +
+                 ") BEFORE ITS FIRST FRAME. SEE " + seat.log_label + ".");
+            return;
+        }
+        if (now - seat.started > 30.0) {
+            fail("NO PICTURE AFTER 30 SECONDS. SEE " + seat.log_label + ".");
+        }
+    }
+}
+
 bool grab_frame(Seat& seat) {
     if (seat.base == nullptr) {
         return false;
@@ -694,11 +979,7 @@ void blit_seat(const Seat& seat, int index, int count, bool peek, bool both) {
         }
     }
     // The tile's own colour bar, so the couch can tell the seats apart.
-    static const uint32_t kColors[] = {0xF14B4B, 0x4B8BF1, 0x4BC96A,
-                                       0xF1C24B, 0xB04BF1, 0x4BE1E1};
-    const uint32_t color = kColors[index % 6];
-    fill_rect(tile.x, tile.y, tile.w, 3, color);
-    draw_text(tile.x + 8, tile.y + 10, 3, color, "P" + std::to_string(index + 1));
+    draw_tile_label(tile, index);
 }
 
 void composite() {
@@ -711,7 +992,43 @@ void composite() {
             open_ring(seat);
         }
         grab_frame(seat);
+        if (seat.last_seq == 0) {
+            probe_seat(seat, index);
+            draw_placeholder(seat, index, count);
+            continue;
+        }
         blit_seat(seat, index, count, seat.peek, both);
+    }
+}
+
+/// The one audio stream: every seat's ring summed at 1/sqrt(N) - louder than an
+/// average, still with headroom for six consoles hitting the same beat - then
+/// handed to RetroArch, which owns the device and the volume.
+void mix_audio() {
+    if (audio_batch_cb == nullptr || seats.empty()) {
+        return;
+    }
+    static std::vector<int32_t> mix(kAudioFrames * 2);
+    static std::vector<int16_t> out(kAudioFrames * 2);
+    static double carry = 0.0;
+    const double exact = static_cast<double>(kAudioRate) / 60.0;
+    const double pending = carry + exact;
+    const size_t want = std::min<size_t>(static_cast<size_t>(pending), kAudioFrames);
+    carry = pending - static_cast<double>(want);
+
+    std::fill(mix.begin(), mix.end(), 0);
+    const float gain = 1.0f / std::sqrt(static_cast<float>(seats.size()));
+    for (auto& seat : seats) {
+        if (open_audio_ring(seat)) {
+            pull_audio(seat, mix.data(), want, gain);
+        }
+    }
+    // Silence before the first seat boots: a steady clock, not a stutter.
+    for (size_t i = 0; i < want * 2; ++i) {
+        out[i] = static_cast<int16_t>(std::clamp(mix[i], -32768, 32767));
+    }
+    if (want > 0) {
+        audio_batch_cb(out.data(), want);
     }
 }
 
@@ -862,7 +1179,7 @@ void retro_get_system_av_info(retro_system_av_info* info) {
     info->geometry.max_height = kHeight;
     info->geometry.aspect_ratio = static_cast<float>(kWidth) / kHeight;
     info->timing.fps = 60.0;
-    info->timing.sample_rate = 44100.0;
+    info->timing.sample_rate = kAudioRate;
 }
 
 void retro_set_controller_port_device(unsigned, unsigned) {}
@@ -891,12 +1208,7 @@ void retro_run() {
     }
     composite();
     video_cb(frame.data(), kWidth, kHeight, kWidth * sizeof(uint32_t));
-    // The seats keep their own audio devices; RetroArch's mixer gets silence
-    // rather than a duplicated stream.
-    static const int16_t silence[735 * 2] = {};
-    if (audio_batch_cb != nullptr) {
-        audio_batch_cb(silence, 735);
-    }
+    mix_audio();
 }
 
 size_t retro_serialize_size() {

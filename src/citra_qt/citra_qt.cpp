@@ -37,6 +37,7 @@
 #include <QtDBus/QDBusInterface>
 #include <QtDBus/QtDBus>
 #include "audio_core/dsp_interface.h"
+#include "audio_core/shm_audio.h"
 #include "common/linux/gamemode.h"
 #endif
 #include "citra_meta/common_strings.h"
@@ -4966,6 +4967,23 @@ int LaunchQtFrontend(int argc, char* argv[]) {
         const int status = started ? app.exec() : -1;
         seats.Shutdown();
         return status;
+    }
+
+    // Split-screen fork: a headless seat can hand its audio to a shared-memory
+    // ring so one frontend owns the only stream. Parsed here because the window
+    // boots the game from the command line when it is constructed.
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (strcmp(argv[i], "--shm-audio") != 0) {
+            continue;
+        }
+        auto ring = std::make_shared<AudioCore::ShmAudioRing>();
+        if (ring->Open(argv[i + 1], AudioCore::native_sample_rate)) {
+            AudioCore::SetShmAudioRing(std::move(ring));
+        } else {
+            std::cerr << "shm audio ring \"" << argv[i + 1] << "\": could not be created"
+                      << std::endl;
+        }
+        break;
     }
 
     // Register Qt image interface

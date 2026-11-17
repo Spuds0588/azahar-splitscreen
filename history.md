@@ -2047,3 +2047,43 @@ Six seats were then run through the same harness: four right presses on the menu
 all six booted into a 3x2 grid of action screens, and the unload left nothing behind either. The
 one open end, recorded in `todo.md`, is audio: the core's callback sends silence because each seat
 keeps its own output device.
+
+## 2026-11-17 (50) - One audio stream, and a seat that says why it is missing
+
+The core had two holes left: its audio callback sent silence, and a seat that never booted left a
+black tile with no explanation. Both are closed.
+
+- **Seat audio ring** - a new `src/audio_core/shm_audio.{h,cpp}` holds a 64-byte header plus a
+  16384-frame ring of interleaved stereo PCM16 (magic `AZSA`, monotonic `write_frames`), the same
+  publish-and-drop shape as the frame ring. A headless seat started with `--shm-audio <name>`
+  creates it and writes what it would have played at the 3DS's native 32728 Hz.
+- **The seat stops opening a device** - `DspInterface::SetSink` forces the null sink when a ring is
+  registered, and `PushSamples` sends the samples straight to the ring instead of the FIFO, so a
+  seat can no longer fight RetroArch for the system mixer. The windowed app is untouched: the Rust
+  orchestrator passes no flag, so those seats still open their own devices.
+- **The core owns the stream** - it maps each seat's ring read-only, pulls a frame's worth per
+  `retro_run` (545.47 at 32728 Hz, the fraction carried between calls so the ring neither drains
+  nor drifts), sums the seats at 1/sqrt(players) with clamping, and hands that to
+  `audio_batch_cb`; before the first seat boots it emits silence so the frontend keeps a steady
+  clock. `retro_get_system_av_info` now reports 32728 Hz instead of 44100. RetroArch's volume,
+  mute, latency and recorder all apply to the whole couch for the first time.
+- **Why a seat is missing** - `probe_seat` reads the tail of the seat's stdout log and its
+  `log/azahar_log.txt` twice a second until a frame appears, and turns the loader's verdict into
+  a line on that player's tile ("THIS GAME DID NOT BOOT: STILL ENCRYPTED OR UNREADABLE. USE A
+  DECRYPTED DUMP OR ADD THE CONSOLE KEYS."). It also reaps the seat with `waitpid(WNOHANG)` and
+  reports an exit code, and after 30 seconds without a frame names the seat's log. Each verdict is
+  also written to RetroArch's log, so a bug report carries it. The tile otherwise says BOOTING;
+  the text is word-wrapped by a small helper and split inside over-long words (file names).
+
+Verified through the rebuilt throwaway harness (`/tmp/core-test`, not committed), which now paces
+itself at 60 Hz and counts the audio it is handed:
+
+- two MK7 seats, 900 frames: `audio_peak=5606`, 478,374 frames delivered, 0 processes and 0 rings
+  afterwards (audio stays silent during the menu, which is why the count is below frames x 545);
+- six seats, 1300 frames: peak 6376, 687,833 frames, 0 processes and 0 rings;
+- an unreadable 4 MB file named `.3ds`: both tiles showed the encrypted/unreadable verdict, the
+  core logged it twice, 0 audio frames and nothing left running - the failure path does not leave
+  processes behind either.
+
+Not done: there is no way to hear one seat instead of the mix (recorded in `todo.md`), and the
+windowed app still lets each seat open a device.

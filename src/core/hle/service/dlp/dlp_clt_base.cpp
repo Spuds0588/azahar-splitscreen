@@ -141,8 +141,7 @@ void DLP_Clt_Base::StartScan(Kernel::HLERequestContext& ctx) {
     // clear out received beacons
     GetUDS()->GetReceivedBeacons(Network::BroadcastMac);
 
-    LOG_INFO(Service_DLP, "Starting scan worker (title id filter 0x{:016x})",
-             scan_title_id_filter);
+    LOG_INFO(Service_DLP, "Starting scan worker (title id filter 0x{:016x})", scan_title_id_filter);
 
     constexpr int first_scan_delay_ms = 0;
 

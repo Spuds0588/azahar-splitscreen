@@ -350,7 +350,6 @@ private:
 
     void CreateTouchState();
 
-
     Layout::FramebufferLayout framebuffer_layout; ///< Current framebuffer layout
 
     WindowConfig config{};        ///< Internal configuration (changes pending for being applied in

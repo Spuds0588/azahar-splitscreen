@@ -357,6 +357,9 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **First windowed session from the owner's own RetroArch** (2026-11-18): the owner booted
       sessions from their installed core and reported back twice - the Mii dialog (54) and the
       audio mix (55) - so the display path is exercised by the person it is for.
+- [ ] **Green CI on master**: the three causes are fixed (history (60)) - Windows/Android `shm_open`,
+  the macOS `__unix__` include guard, and clang-format. Push, then read the macOS, MSVC, MXE, Android
+  and libretro jobs; the format job should be green immediately.
 - [ ] **Windows build of the stack**: the launcher and the seat IPC (frame ring, audio ring, input)
   now have Windows implementations that compile clean with mingw-w64 14 (history (59)), but nothing
   has run there. Next: build Azahar for Windows (Qt 6 + MSVC or mingw), then a Windows archive in

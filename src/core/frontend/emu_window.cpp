@@ -86,7 +86,8 @@ public:
 private:
     class Device : public Input::ButtonDevice {
     public:
-        Device(std::weak_ptr<KeyState> state_, int key_code_) : state(state_), key_code(key_code_) {}
+        Device(std::weak_ptr<KeyState> state_, int key_code_)
+            : state(state_), key_code(key_code_) {}
         bool GetStatus() const override {
             if (auto locked = state.lock()) {
                 return locked->IsPressed(key_code);
@@ -178,8 +179,7 @@ void EmuWindow::CreateTouchState() {
     // different Systems, and a shared state would let a touch on one seat move the
     // cursor of every other seat.
     touch_state = std::make_shared<TouchState>();
-    touch_device_name =
-        "emu_window_" + std::to_string(reinterpret_cast<std::uintptr_t>(this));
+    touch_device_name = "emu_window_" + std::to_string(reinterpret_cast<std::uintptr_t>(this));
     Input::RegisterFactory<Input::TouchDevice>(touch_device_name, touch_state);
     // The historical name still points at the first window, for the single-window
     // frontends whose configs name "engine:emu_window".

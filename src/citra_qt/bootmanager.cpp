@@ -819,8 +819,8 @@ void GRenderWindow::PublishSharedFrame() {
     if (renderer.IsScreenshotPending()) {
         return; // one readback in flight at a time
     }
-    const auto layout{Layout::FrameLayoutFromResolutionScale(
-        renderer.GetResolutionScaleFactor(), is_secondary)};
+    const auto layout{
+        Layout::FrameLayoutFromResolutionScale(renderer.GetResolutionScaleFactor(), is_secondary)};
     // A headless seat has no window to size a layout from, but touch input is
     // resolved against the window layout: without this every forwarded touch
     // lands outside the touchscreen rect and is dropped. Bind it to the frame
@@ -843,8 +843,8 @@ void GRenderWindow::SetInputSocket(const std::string& path) {
         input_socket.reset();
         return;
     }
-    input_notifier = std::make_unique<QSocketNotifier>(input_socket->Fd(), QSocketNotifier::Read,
-                                                       this);
+    input_notifier =
+        std::make_unique<QSocketNotifier>(input_socket->Fd(), QSocketNotifier::Read, this);
     connect(input_notifier.get(), &QSocketNotifier::activated, this,
             [this] { ReadForwardedInput(); });
 }

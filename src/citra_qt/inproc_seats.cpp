@@ -50,7 +50,7 @@ QImage ReadRingImage(const std::string& ring) {
         return {};
     }
     QImage image;
-    struct stat info {};
+    struct stat info{};
     if (fstat(fd, &info) == 0 && static_cast<std::size_t>(info.st_size) > 64) {
         auto* base = static_cast<std::uint8_t*>(
             mmap(nullptr, static_cast<std::size_t>(info.st_size), PROT_READ, MAP_SHARED, fd, 0));
@@ -109,7 +109,7 @@ std::uint32_t RingHash(const std::string& ring) {
         return 0;
     }
     std::uint32_t hash = 0;
-    struct stat info {};
+    struct stat info{};
     if (fstat(fd, &info) == 0 && static_cast<std::size_t>(info.st_size) > 64) {
         auto* base = static_cast<std::uint8_t*>(
             mmap(nullptr, static_cast<std::size_t>(info.st_size), PROT_READ, MAP_SHARED, fd, 0));
@@ -309,8 +309,8 @@ bool InProcSeats::BootSeat(Seat& seat, int index) {
     seat.emu_thread->start();
     seat.emu_thread->SetRunning(true);
     seat.booted = true;
-    std::fprintf(stderr, "multiseat: seat%d booted (ring=%s socket=%s)\n", index,
-                 seat.ring.c_str(), seat.socket.c_str());
+    std::fprintf(stderr, "multiseat: seat%d booted (ring=%s socket=%s)\n", index, seat.ring.c_str(),
+                 seat.socket.c_str());
     return true;
 }
 
@@ -345,10 +345,10 @@ void InProcSeats::mousePressEvent(QMouseEvent* event) {
     }
     const int columns = seats_.size() > 1 ? 2 : 1;
     const int rows = (static_cast<int>(seats_.size()) + columns - 1) / columns;
-    const int column = std::clamp(static_cast<int>(event->position().x()) / (width() / columns), 0,
-                                  columns - 1);
-    const int row = std::clamp(static_cast<int>(event->position().y()) / (height() / rows), 0,
-                               rows - 1);
+    const int column =
+        std::clamp(static_cast<int>(event->position().x()) / (width() / columns), 0, columns - 1);
+    const int row =
+        std::clamp(static_cast<int>(event->position().y()) / (height() / rows), 0, rows - 1);
     const std::size_t index = static_cast<std::size_t>(row * columns + column);
     if (index >= seats_.size()) {
         return;
@@ -457,7 +457,8 @@ void InProcSeats::Shutdown() {
             if (seat->emu_thread->isRunning()) {
                 // A thread that will not leave must not outlive the object whose
                 // condition variables it waits on; that is the shutdown hang.
-                std::fprintf(stderr, "multiseat: seat emulation thread did not stop, terminating\n");
+                std::fprintf(stderr,
+                             "multiseat: seat emulation thread did not stop, terminating\n");
                 seat->emu_thread->terminate();
                 seat->emu_thread->wait(2000);
             }

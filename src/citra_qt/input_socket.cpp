@@ -24,7 +24,7 @@
 namespace {
 bool ensure_winsock() {
     static const bool started = [] {
-        WSADATA data {};
+        WSADATA data{};
         WSAStartup(MAKEWORD(2, 2), &data);
         return true;
     }();
@@ -54,7 +54,7 @@ bool InputSocket::Open(const std::string& path) {
         LOG_ERROR(Frontend, "input socket: socket() failed: {}", WSAGetLastError());
         return false;
     }
-    sockaddr_in address {};
+    sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     address.sin_port = htons(static_cast<unsigned short>(std::atoi(path.c_str() + colon + 1)));
@@ -86,7 +86,7 @@ bool InputSocket::Open(const std::string& path) {
     if (flags >= 0) {
         ::fcntl(fd_, F_SETFL, flags | O_NONBLOCK);
     }
-    sockaddr_un address {};
+    sockaddr_un address{};
     address.sun_family = AF_UNIX;
     std::memcpy(address.sun_path, path.c_str(), path.size());
     // A crashed session leaves its socket file behind; bind() would then fail
@@ -129,10 +129,10 @@ std::size_t InputSocket::Drain(InputMessage* out, std::size_t capacity) {
     std::size_t count = 0;
 #ifdef _WIN32
     while (count < capacity) {
-        InputMessage message {};
-        const int received = recvfrom(reinterpret_cast<SOCKET>(socket_),
-                                      reinterpret_cast<char*>(&message), sizeof(message), 0,
-                                      nullptr, nullptr);
+        InputMessage message{};
+        const int received =
+            recvfrom(reinterpret_cast<SOCKET>(socket_), reinterpret_cast<char*>(&message),
+                     sizeof(message), 0, nullptr, nullptr);
         if (received != static_cast<int>(sizeof(message))) {
             break; // nothing left, or a short/foreign datagram
         }
@@ -146,7 +146,7 @@ std::size_t InputSocket::Drain(InputMessage* out, std::size_t capacity) {
     }
 #else
     while (count < capacity) {
-        InputMessage message {};
+        InputMessage message{};
         const ssize_t received = ::recv(fd_, &message, sizeof(message), MSG_DONTWAIT);
         if (received < static_cast<ssize_t>(sizeof(message))) {
             break; // nothing left, or a short/foreign datagram

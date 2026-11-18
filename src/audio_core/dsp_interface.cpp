@@ -203,7 +203,6 @@ void DspInterface::OutputCallback(s16* buffer, std::size_t num_frames) {
             buffer[i * 2 + 1] = static_cast<s16>(buffer[i * 2 + 1] * volume_scale_factor);
         }
     }
-
 }
 
 } // namespace AudioCore

@@ -2403,3 +2403,37 @@ Windows machine here, so the IPC handshake, `CREATE_NO_WINDOW` logging and the m
 reasoned rather than observed, and there is no Windows `azahar.exe` to launch anyway - that needs
 upstream's Windows toolchain and Qt 6, which this box does not have. The port is code-complete for
 this fork's own files; a Windows build is the next milestone, not a shipped capability.
+
+## 2026-11-18 (60) - The CI emails were real: three of my own bugs
+
+The owner forwarded a mailbox of failure notices from the inherited Azahar workflows. They were all
+real, and three causes covered every one of them:
+
+- **`sys/mman.h` and `shm_open` outside Linux.** The audio ring was written POSIX-first, so
+  `windows (msvc)`, `windows (mxe)`, `libretro-windows`, `android (vanilla)` and `libretro-android`
+  all died in `src/audio_core/shm_audio.cpp`. Windows is fixed by the port above (which was not
+  pushed when those jobs ran); Android gets an explicit `__ANDROID__` path, because its libc has no
+  POSIX shm objects at all: the ring refuses to open, the seat keeps its configured sink, and the
+  core reports a missing ring instead of failing to compile. The core's own duplicated ring helpers
+  got the same treatment.
+- **`macos`, and `beta-release` which builds it.** `--shm-audio` was parsed unconditionally in
+  `citra_qt.cpp` while its two includes sat inside `#ifdef __unix__`, which Apple clang does not
+  define: "no member named 'ShmAudioRing' in namespace 'AudioCore'". The includes now sit outside
+  that guard.
+- **`clang-format`.** The job checks every file under `src/` on a branch push, and eleven of them
+  were mine: `inproc_seats.cpp`, `bootmanager.{cpp,h}`, `citra_qt.cpp`, `core.cpp`, `shm_audio.cpp`,
+  `dsp_interface.cpp`, `hid.cpp`, `dlp_clt_base.cpp`, `emu_window.{h,cpp}`, plus `input_socket.cpp`
+  once this session touched it. Formatted with clang-format 19.1.7 - the CI image's exact version,
+  taken from the PyPI wheel into `/tmp`, no root - and the job's own comparison loop now reports zero
+  diffs across all of `src/`.
+
+Two things the audit turned up about the job itself, worth knowing before trusting a green rate:
+`.ci/clang-format.sh` globs `*.yml` at the repo root, which does not exist, so `grep` exits 2 and the
+trailing-whitespace check never runs (which is why `dist/azahar.svg`'s trailing space survives); and
+the check is whole-tree on pushes, so master stays red until every file complies, not just the ones a
+commit touched.
+
+Verified locally: all of `src/` is clean at clang-format 19.1.7, the POSIX core and seat files pass a
+syntax check, and the Android code paths compile under `-D__ANDROID__`. Not verified: the macOS, MSVC
+and NDK builds themselves - there is no macOS host, no MSVC and no NDK on this box, so those need the
+push to confirm.

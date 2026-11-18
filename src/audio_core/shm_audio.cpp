@@ -28,7 +28,7 @@ constexpr std::uint32_t kChannels = 2;
 constexpr std::uint32_t kCapacityFrames = 16384; // half a second at 32728 Hz
 constexpr std::size_t kHeaderBytes = 64;
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__ANDROID__)
 // shm_open takes a POSIX name, which must start with a slash on Linux and macOS.
 std::string ShmName(const std::string& name) {
     return (!name.empty() && name.front() == '/') ? name : "/" + name;
@@ -65,8 +65,8 @@ ShmAudioRing::Header* ShmAudioRing::header() const {
 bool ShmAudioRing::Open(const std::string& name, u32 sample_rate) {
     Close();
     name_ = name;
-    const std::size_t needed = kHeaderBytes + static_cast<std::size_t>(kCapacityFrames) * kChannels *
-                                                   sizeof(s16);
+    const std::size_t needed =
+        kHeaderBytes + static_cast<std::size_t>(kCapacityFrames) * kChannels * sizeof(s16);
     void* mapped = nullptr;
 #ifdef _WIN32
     // A named file mapping replaces /dev/shm. The ring is a fixed size, so it is
@@ -84,6 +84,11 @@ bool ShmAudioRing::Open(const std::string& name, u32 sample_rate) {
         Close();
         return false;
     }
+#elif defined(__ANDROID__)
+    // Android's libc has no POSIX shm objects, so a seat there plays through its
+    // configured sink instead of a ring.
+    LOG_WARNING(Audio, "shm audio ring \"{}\": not available on Android", name);
+    return false;
 #else
     fd_ = shm_open(ShmName(name).c_str(), O_CREAT | O_RDWR, 0600);
     if (fd_ < 0) {
@@ -134,7 +139,9 @@ void ShmAudioRing::Close() {
     if (fd_ >= 0) {
         close(fd_);
         fd_ = -1;
+#ifndef __ANDROID__
         shm_unlink(ShmName(name_).c_str()); // the reader keeps its own mapping alive
+#endif
     }
 #endif
     size_ = 0;

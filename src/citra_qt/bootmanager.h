@@ -8,8 +8,8 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
-#include <QThread>
 #include <QSocketNotifier>
+#include <QThread>
 #include <QTimer>
 #include <QWidget>
 #include "citra_qt/input_socket.h"

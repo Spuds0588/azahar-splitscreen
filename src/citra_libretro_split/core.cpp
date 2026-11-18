@@ -28,17 +28,17 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <sys/types.h>
+#include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <windows.h>
-#include <sys/types.h>
 #else
+#include <arpa/inet.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <signal.h>
 #include <sys/mman.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -76,7 +76,7 @@ retro_log_printf_t log_cb = nullptr;
 // this core is a launcher and must not link the emulator.
 // ---------------------------------------------------------------------------
 
-constexpr uint32_t kMagic = 0x48535A41; // 'AZSH'
+constexpr uint32_t kMagic = 0x48535A41;      // 'AZSH'
 constexpr uint32_t kAudioMagic = 0x41535A41; // 'AZSA'
 constexpr size_t kHeaderBytes = 64;
 constexpr uint32_t kMaxPlayers = 6;
@@ -97,7 +97,7 @@ using socket_t = SOCKET;
 constexpr socket_t kInvalidSocket = INVALID_SOCKET;
 inline void ensure_winsock() {
     static const bool started = [] {
-        WSADATA data {};
+        WSADATA data{};
         WSAStartup(MAKEWORD(2, 2), &data);
         return true;
     }();
@@ -352,7 +352,8 @@ std::string home_dir() {
 
 std::string save_dir() {
     const char* dir = nullptr;
-    if (environ_cb != nullptr && environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) && dir != nullptr) {
+    if (environ_cb != nullptr && environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) &&
+        dir != nullptr) {
         return dir;
     }
 #ifdef _WIN32
@@ -436,7 +437,7 @@ std::string exe_dir() {
     }
     return ".";
 #else
-    Dl_info info {};
+    Dl_info info{};
     if (dladdr(reinterpret_cast<void*>(&retro_init), &info) != 0 && info.dli_fname != nullptr) {
         return dirname_of(info.dli_fname);
     }
@@ -510,20 +511,18 @@ pid_t spawn_process(const std::string& binary, const std::vector<std::string>& a
     for (const auto& arg : args) {
         command += " " + quote_arg(arg);
     }
-    SECURITY_ATTRIBUTES inherit {sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
-    HANDLE log = CreateFileA(log_path.c_str(), FILE_APPEND_DATA,
-                             FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit, CREATE_ALWAYS,
-                             FILE_ATTRIBUTE_NORMAL, nullptr);
-    STARTUPINFOA startup {};
+    SECURITY_ATTRIBUTES inherit{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+    HANDLE log = CreateFileA(log_path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                             &inherit, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    STARTUPINFOA startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES;
     startup.hStdOutput = log;
     startup.hStdError = log;
     startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-    PROCESS_INFORMATION process {};
-    const BOOL started = CreateProcessA(
-        nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr,
-        &startup, &process);
+    PROCESS_INFORMATION process{};
+    const BOOL started = CreateProcessA(nullptr, command.data(), nullptr, nullptr, TRUE,
+                                        CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
     if (log != INVALID_HANDLE_VALUE) {
         CloseHandle(log);
     }
@@ -589,7 +588,7 @@ void send_input(Seat& seat, uint8_t type, uint32_t key, uint16_t x, uint16_t y) 
     if (seat.pid <= 0) {
         return;
     }
-    InputMessage message {};
+    InputMessage message{};
     message.type = type;
     message.key = key;
     message.x = x;
@@ -602,7 +601,7 @@ void send_input(Seat& seat, uint8_t type, uint32_t key, uint16_t x, uint16_t y) 
         return;
     }
     ensure_winsock();
-    sockaddr_in address {};
+    sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     address.sin_port = htons(static_cast<u_short>(std::stoi(seat.socket_path.substr(colon + 1))));
@@ -614,7 +613,7 @@ void send_input(Seat& seat, uint8_t type, uint32_t key, uint16_t x, uint16_t y) 
            reinterpret_cast<sockaddr*>(&address), sizeof(address));
     close_socket(fd);
 #else
-    sockaddr_un address {};
+    sockaddr_un address{};
     address.sun_family = AF_UNIX;
     if (seat.socket_path.size() >= sizeof(address.sun_path)) {
         return;
@@ -625,8 +624,8 @@ void send_input(Seat& seat, uint8_t type, uint32_t key, uint16_t x, uint16_t y) 
         return;
     }
     fcntl(fd, F_SETFD, FD_CLOEXEC);
-    sendto(fd, &message, sizeof(message), MSG_DONTWAIT,
-           reinterpret_cast<sockaddr*>(&address), sizeof(address));
+    sendto(fd, &message, sizeof(message), MSG_DONTWAIT, reinterpret_cast<sockaddr*>(&address),
+           sizeof(address));
     close(fd);
 #endif
 }
@@ -698,7 +697,7 @@ bool open_mapping(const std::string& name, HANDLE& handle, uint8_t*& base, size_
         handle = nullptr;
         return false;
     }
-    MEMORY_BASIC_INFORMATION region {};
+    MEMORY_BASIC_INFORMATION region{};
     size = VirtualQuery(view, &region, sizeof(region)) == 0 ? 0 : region.RegionSize;
     base = static_cast<uint8_t*>(view);
     return size >= kHeaderBytes;
@@ -710,13 +709,16 @@ bool open_ring(Seat& seat) {
     if (!open_mapping(seat.ring_name, seat.map_handle, seat.base, seat.size)) {
         return false;
     }
+#elif defined(__ANDROID__)
+    // Android's libc has no POSIX shm objects, and nothing there spawns seats.
+    return false;
 #else
     const std::string name = "/" + seat.ring_name;
     const int fd = shm_open(name.c_str(), O_RDONLY, 0);
     if (fd < 0) {
         return false;
     }
-    struct stat info {};
+    struct stat info{};
     if (fstat(fd, &info) != 0 || info.st_size < static_cast<off_t>(kHeaderBytes)) {
         close(fd);
         return false;
@@ -800,12 +802,14 @@ bool open_audio_ring(Seat& seat) {
                       seat.audio_size)) {
         return false;
     }
+#elif defined(__ANDROID__)
+    return false;
 #else
     const int fd = shm_open(("/" + seat.audio_ring_name).c_str(), O_RDONLY, 0);
     if (fd < 0) {
         return false;
     }
-    struct stat info {};
+    struct stat info{};
     if (fstat(fd, &info) != 0 || info.st_size < static_cast<off_t>(kHeaderBytes)) {
         close(fd);
         return false;
@@ -874,6 +878,8 @@ void stop_session() {
         if (!seat.socket_path.empty()) {
             unlink(seat.socket_path.c_str());
         }
+#endif
+#if !defined(_WIN32) && !defined(__ANDROID__)
         if (!seat.ring_name.empty()) {
             shm_unlink(("/" + seat.ring_name).c_str());
         }
@@ -894,7 +900,7 @@ uint16_t free_udp_port() {
     if (fd == kInvalidSocket) {
         return 24872;
     }
-    sockaddr_in address {};
+    sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     address.sin_port = 0;
@@ -911,9 +917,8 @@ uint16_t free_udp_port() {
 bool start_session(int players) {
     install_dir = find_install();
     if (install_dir.empty()) {
-        failure =
-            "Azahar binaries not found. Put the core inside the beta bundle, or set "
-            "AZAHAR_SPLITS_ROOT to the folder that holds build/bin/Release/azahar.";
+        failure = "Azahar binaries not found. Put the core inside the beta bundle, or set "
+                  "AZAHAR_SPLITS_ROOT to the folder that holds build/bin/Release/azahar.";
         return false;
     }
     const std::string emulator = emulator_path(install_dir);
@@ -929,10 +934,11 @@ bool start_session(int players) {
 
     const uint16_t port = free_udp_port();
     const std::string room_log = session_dir + "/room.log";
-    room_pid = spawn_process(room_bin,
-                             {"--room-name", "splitscreen", "--preferred-app", "Azahar Splitscreen",
-                              "--port", std::to_string(port), "--max_members", std::to_string(players)},
-                             room_log);
+    room_pid =
+        spawn_process(room_bin,
+                      {"--room-name", "splitscreen", "--preferred-app", "Azahar Splitscreen",
+                       "--port", std::to_string(port), "--max_members", std::to_string(players)},
+                      room_log);
     if (room_pid <= 0) {
         failure = "could not start azahar-room";
         return false;
@@ -959,13 +965,13 @@ bool start_session(int players) {
         seat.started = now_seconds();
         seat.last_probe = seat.started;
         make_dir(seat.user_dir);
-        seat.pid = spawn_process(
-            emulator,
-            {"--user", seat.user_dir, "--shm-frame", seat.ring_name, "--shm-audio",
-             seat.audio_ring_name, "--input-socket", seat.socket_path, "--join-room",
-             "127.0.0.1:" + std::to_string(port), "--player-name", name, "--stats",
-             session_dir + "/" + name + ".fps", rom_path},
-            seat.log_path);
+        seat.pid =
+            spawn_process(emulator,
+                          {"--user", seat.user_dir, "--shm-frame", seat.ring_name, "--shm-audio",
+                           seat.audio_ring_name, "--input-socket", seat.socket_path, "--join-room",
+                           "127.0.0.1:" + std::to_string(port), "--player-name", name, "--stats",
+                           session_dir + "/" + name + ".fps", rom_path},
+                          seat.log_path);
         if (seat.pid <= 0) {
             failure = "could not start azahar for player " + std::to_string(index + 1);
             stop_session();
@@ -1028,12 +1034,10 @@ void pad_buttons(Seat& seat, int port) {
     seat.held = held;
     seat.peek = input_state_cb(port, RETRO_DEVICE_JOYPAD, 0, kPeekButton) != 0;
 
-    const int16_t stick_x = static_cast<int16_t>(input_state_cb(port, RETRO_DEVICE_ANALOG,
-                                                               RETRO_DEVICE_INDEX_ANALOG_LEFT,
-                                                               RETRO_DEVICE_ID_ANALOG_X));
-    const int16_t stick_y = static_cast<int16_t>(-input_state_cb(port, RETRO_DEVICE_ANALOG,
-                                                                RETRO_DEVICE_INDEX_ANALOG_LEFT,
-                                                                RETRO_DEVICE_ID_ANALOG_Y));
+    const int16_t stick_x = static_cast<int16_t>(input_state_cb(
+        port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X));
+    const int16_t stick_y = static_cast<int16_t>(-input_state_cb(
+        port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y));
     static std::vector<int16_t> last_x(kMaxPlayers, 0);
     static std::vector<int16_t> last_y(kMaxPlayers, 0);
     if (std::abs(stick_x - last_x[port]) >= 512 || std::abs(stick_y - last_y[port]) >= 512) {
@@ -1101,8 +1105,7 @@ Rect source_rect(const Seat& seat, bool peek, bool both) {
     return peek ? Rect{0, height - half, width, half} : Rect{0, 0, width, height - half};
 }
 
-const uint32_t kSeatColors[] = {0xF14B4B, 0x4B8BF1, 0x4BC96A,
-                                0xF1C24B, 0xB04BF1, 0x4BE1E1};
+const uint32_t kSeatColors[] = {0xF14B4B, 0x4B8BF1, 0x4BC96A, 0xF1C24B, 0xB04BF1, 0x4BE1E1};
 
 void draw_tile_label(const Rect& tile, int index) {
     const uint32_t color = kSeatColors[index % 6];
@@ -1198,10 +1201,12 @@ void probe_seat(Seat& seat, int index) {
         }
     };
 
-    const std::string text = read_tail(seat.log_path) + read_tail(seat.user_dir + "/log/azahar_log.txt");
+    const std::string text =
+        read_tail(seat.log_path) + read_tail(seat.user_dir + "/log/azahar_log.txt");
     if (text.find("Encrypted applications are not supported") != std::string::npos ||
         text.find("Failed to determine system mode") != std::string::npos) {
-        fail("THIS GAME DID NOT BOOT: STILL ENCRYPTED OR UNREADABLE. USE A DECRYPTED DUMP OR ADD THE "
+        fail("THIS GAME DID NOT BOOT: STILL ENCRYPTED OR UNREADABLE. USE A DECRYPTED DUMP OR ADD "
+             "THE "
              "CONSOLE KEYS.");
         return;
     }
@@ -1283,8 +1288,7 @@ void blit_seat(const Seat& seat, int index, int count, bool peek, bool both) {
     const int offset_y = tile.y + (tile.h - draw_h) / 2;
 
     for (int row = 0; row < draw_h; ++row) {
-        const int source_row =
-            part.y + std::min(part.h - 1, static_cast<int>(row / scale_y));
+        const int source_row = part.y + std::min(part.h - 1, static_cast<int>(row / scale_y));
         const uint8_t* line =
             source + static_cast<size_t>(seat.height - 1 - source_row) * seat.stride;
         uint32_t* out = frame.data() + static_cast<size_t>(offset_y + row) * kWidth + offset_x;
@@ -1336,9 +1340,8 @@ void mix_audio() {
     carry = pending - static_cast<double>(want);
 
     std::fill(mix.begin(), mix.end(), 0);
-    const size_t got = open_audio_ring(seats.front())
-                           ? pull_audio(seats.front(), mix.data(), want, 1.0f)
-                           : 0;
+    const size_t got =
+        open_audio_ring(seats.front()) ? pull_audio(seats.front(), mix.data(), want, 1.0f) : 0;
     // One seat cannot mask another's short frame, so hold the last sample
     // instead of dropping to silence: a click is worse than a repeated sample.
     static int32_t last_left = 0;
@@ -1437,7 +1440,7 @@ unsigned retro_api_version() {
 
 void retro_set_environment(retro_environment_t cb) {
     environ_cb = cb;
-    retro_log_callback logging {};
+    retro_log_callback logging{};
     if (cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging)) {
         log_cb = logging.log;
     }
@@ -1482,7 +1485,7 @@ void retro_set_input_state(retro_input_state_t cb) {
 
 void retro_init() {
     frame.assign(static_cast<size_t>(kWidth) * kHeight, 0x00101012u);
-    retro_log_callback logging {};
+    retro_log_callback logging{};
     if (environ_cb != nullptr && environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging)) {
         log_cb = logging.log;
     }
@@ -1577,7 +1580,7 @@ bool retro_load_game(const retro_game_info* info) {
         return false;
     }
 
-    retro_variable variable {};
+    retro_variable variable{};
     variable.key = "azahar_splitscreen_players";
     if (environ_cb != nullptr && environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &variable) &&
         variable.value != nullptr) {

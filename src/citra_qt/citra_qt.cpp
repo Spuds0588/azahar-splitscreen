@@ -32,14 +32,15 @@
 #else
 #include <getopt.h>
 #endif
+#include "audio_core/dsp_interface.h"
+#include "audio_core/shm_audio.h"
 #ifdef __unix__
 #include <QVariant>
 #include <QtDBus/QDBusInterface>
 #include <QtDBus/QtDBus>
-#include "audio_core/dsp_interface.h"
-#include "audio_core/shm_audio.h"
 #include "common/linux/gamemode.h"
 #endif
+#include <QFile>
 #include "citra_meta/common_strings.h"
 #include "citra_qt/aboutdialog.h"
 #include "citra_qt/applets/mii_selector.h"
@@ -47,7 +48,6 @@
 #include "citra_qt/bootmanager.h"
 #include "citra_qt/camera/qt_multimedia_camera.h"
 #include "citra_qt/camera/still_image_camera.h"
-#include <QFile>
 #include "citra_qt/citra_qt.h"
 #include "citra_qt/compatibility_list.h"
 #include "citra_qt/configuration/config.h"
@@ -4899,8 +4899,7 @@ int LaunchQtFrontend(int argc, char* argv[]) {
                 user_dir += DIR_SEP;
             }
             FileUtil::SetUserPath(user_dir);
-            std::cout << "user: " << FileUtil::GetUserPath(FileUtil::UserPath::UserDir)
-                      << std::endl
+            std::cout << "user: " << FileUtil::GetUserPath(FileUtil::UserPath::UserDir) << std::endl
                       << std::flush;
             break;
         }
@@ -5092,10 +5091,8 @@ int LaunchQtFrontend(int argc, char* argv[]) {
     if (!room_address.isEmpty() && room_port != 0) {
         // Joining while the game is still booting leaves the console identity empty and
         // the room rejects the member; wait for the boot to settle first.
-        const QString nickname =
-            player_name.isEmpty() ? QStringLiteral("Player") : player_name;
-        QTimer::singleShot(4000, &main_window, [&main_window, nickname, room_address,
-                                                room_port] {
+        const QString nickname = player_name.isEmpty() ? QStringLiteral("Player") : player_name;
+        QTimer::singleShot(4000, &main_window, [&main_window, nickname, room_address, room_port] {
             main_window.JoinRoom(nickname, room_address, room_port);
         });
     }

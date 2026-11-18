@@ -147,8 +147,8 @@ void Module::LoadInputDevices() {
         constexpr std::string_view keyboard_prefix{"engine:keyboard"};
         if (!key_device.empty() && spec.starts_with(keyboard_prefix) &&
             (spec.size() == keyboard_prefix.size() || spec[keyboard_prefix.size()] == ',')) {
-            return Input::CreateDevice<Input::ButtonDevice>(
-                "engine:" + key_device + spec.substr(keyboard_prefix.size()));
+            return Input::CreateDevice<Input::ButtonDevice>("engine:" + key_device +
+                                                            spec.substr(keyboard_prefix.size()));
         }
         return Input::CreateDevice<Input::ButtonDevice>(spec);
     };
@@ -158,9 +158,9 @@ void Module::LoadInputDevices() {
                        Settings::NativeButton::BUTTON_HID_END,
                    buttons.begin(), make_button);
     circle_pad = std::make_unique<ForwardedCirclePad>(
-        system, Input::CreateDevice<Input::AnalogDevice>(
-                    Settings::values.current_input_profile.analogs
-                        [Settings::NativeAnalog::CirclePad]));
+        system,
+        Input::CreateDevice<Input::AnalogDevice>(
+            Settings::values.current_input_profile.analogs[Settings::NativeAnalog::CirclePad]));
     motion_device = Input::CreateDevice<Input::MotionDevice>(
         Settings::values.current_input_profile.motion_device);
     touch_device = Input::CreateDevice<Input::TouchDevice>(

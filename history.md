@@ -2349,3 +2349,20 @@ recipe line).
 
 Left for the owner, because each needs their GitHub session: force-push the rebuilt branch, push
 master, open the PR, ask libretro to mirror the repo.
+
+## 2026-11-18 (58) - Sent to libretro, with the branch repaired
+
+The owner said go, so both pushes ran. `master` went up `0759c6cf5..edf1520a9`, so
+`.gitlab-ci.yml` (1633 bytes) and the info file now exist where a libretro mirror looks, and
+`azahar-splitscreen-core` was force-pushed `d878e073...191116b4`. A PR was already open from the
+owner's earlier attempt - **libretro/libretro-super #2206** - and it now reads one file,
+`dist/info/azahar_splitscreen_libretro.info +33 -0`, head `191116b4`, base `master`, no unrelated
+deletions.
+
+Its description was empty; `gh pr edit` fails on this repo with a GraphQL "Projects (classic) is
+being deprecated" error, so the body went in through the REST API instead: the reviewer notes on
+POSIX-only builds, the run-time binary dependency, the GPLv3+ licence and the AI-assistance
+disclosure, plus why recipes were left out.
+
+Still not verified: libretro's own CI has not been run (it needs the repo mirrored on their GitLab,
+which is a request rather than a PR), and no macOS artifact has been built anywhere.

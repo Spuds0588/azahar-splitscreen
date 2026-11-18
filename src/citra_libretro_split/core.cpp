@@ -14,8 +14,8 @@
 //   * The core needs the emulator binaries beside it (a beta bundle, or
 //     AZAHAR_SPLITS_ROOT pointing at one); see find_install().
 //   * Each seat writes its audio into a shared-memory ring (`--shm-audio`) instead
-//     of opening a device, and this core mixes those rings into RetroArch's audio
-//     callback: one stream, one volume, one recorder.
+//     of opening a device, and this core plays seat 1's ring through RetroArch's
+//     audio callback: one stream, one volume, one recorder.
 //   * A seat that never draws a frame says why on its tile, reading the loader's
 //     verdict out of the seat's own log (an encrypted dump, an unreadable game)
 //     or reporting that the process exited before its first frame.
@@ -1035,9 +1035,11 @@ void composite() {
     }
 }
 
-/// The one audio stream: every seat's ring summed at 1/sqrt(N) - louder than an
-/// average, still with headroom for six consoles hitting the same beat - then
-/// handed to RetroArch, which owns the device and the volume.
+/// Player 1 owns the speakers. Every seat renders the same game, so summing the
+/// rings stacked N copies of the same music a few milliseconds apart: a phased,
+/// hollow roar that only got worse per player. Seat 1's ring goes to RetroArch
+/// alone, at full level; the other rings are left unread and their producers
+/// overwrite whatever does not survive.
 void mix_audio() {
     if (audio_batch_cb == nullptr || seats.empty()) {
         return;
@@ -1051,11 +1053,20 @@ void mix_audio() {
     carry = pending - static_cast<double>(want);
 
     std::fill(mix.begin(), mix.end(), 0);
-    const float gain = 1.0f / std::sqrt(static_cast<float>(seats.size()));
-    for (auto& seat : seats) {
-        if (open_audio_ring(seat)) {
-            pull_audio(seat, mix.data(), want, gain);
-        }
+    const size_t got = open_audio_ring(seats.front())
+                           ? pull_audio(seats.front(), mix.data(), want, 1.0f)
+                           : 0;
+    // One seat cannot mask another's short frame, so hold the last sample
+    // instead of dropping to silence: a click is worse than a repeated sample.
+    static int32_t last_left = 0;
+    static int32_t last_right = 0;
+    if (got > 0) {
+        last_left = mix[(got - 1) * 2 + 0];
+        last_right = mix[(got - 1) * 2 + 1];
+    }
+    for (size_t i = got; i < want; ++i) {
+        mix[i * 2 + 0] = last_left;
+        mix[i * 2 + 1] = last_right;
     }
     // Silence before the first seat boots: a steady clock, not a stutter.
     for (size_t i = 0; i < want * 2; ++i) {

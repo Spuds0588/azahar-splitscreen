@@ -357,9 +357,10 @@ touch are playability polish and may slip to Milestone 4.
 - [ ] **First windowed session from the owner's own RetroArch**: installed 2026-11-18; nobody has
       yet pressed Start on a real display and played a race, which is the only check the headless
       runs cannot make.
-- [ ] **Core audio focus**: the mix is every seat at 1/sqrt(players); a couch that finds six
-      games at once muddy needs a choice (all / one player), and the windowed app could adopt the
-      same ring instead of each seat opening a device.
+- [x] **Core audio focus** (2026-11-18): the core played every seat's ring summed at
+      1/sqrt(players), which phased and clipped the same music three to six times over; it now
+      plays seat 1's ring alone at full level (history (55)). The windowed app adopting the same
+      ring instead of a device per seat is still open.
 - [ ] **Save states**: not implemented anywhere in the app - seats are headless and no
       save-state hotkey is forwarded. Save *data* sets are the supported management path.
 - [ ] **Save-set integrity**: after importing a set, MK7 says "The save data is corrupted

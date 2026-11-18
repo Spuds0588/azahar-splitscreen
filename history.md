@@ -2259,3 +2259,31 @@ Installed copy updated in place (`~/.config/retroarch/cores/` and `out/libretro-
 sha256 `b7bbbee9...`). Dev-env hygiene: the RetroArch instance, its three seats and the room were
 killed, six leftover `/dev/shm` rings removed, `build-split-core/` (1 MB) and the `/tmp` configs and
 captures deleted; nothing else was kept beyond the bundle.
+
+## 2026-11-18 (55) - Player 1 owns the speakers
+
+The owner's first session after (54) booted but sounded wrong: "audio is bad", and their guess was
+right - the core was piping in every seat. `mix_audio()` summed all N rings at 1/sqrt(N), which for
+the same music a few frames apart phase-cancels into a hollow roar and, at the peaks, sums to ~1.7x
+one copy and clamps, so three seats also clipped. The mingled sound was never a player-position
+feature; it was the same track three times at slightly different offsets.
+
+One change in `src/citra_libretro_split/core.cpp`: `mix_audio()` reads seat 1's ring alone at gain
+1.0 and leaves the other rings unread (their producers overwrite whatever does not survive). A
+short frame now holds the last sample instead of dropping to silence - a single stream has no other
+seat to mask its own underruns, and a click is worse than a repeated sample.
+
+Evidence from a 3-seat session, the installed core in a real windowed RetroArch:
+
+- The rings themselves were healthy music: peaks around +/-25k, no samples at the rails, ~3.6k
+distinct values per 4k samples in all three seats. The seats were never the problem.
+- RetroArch's own `--record` of the same session - what the core hands the frontend, before the
+  device - is music at -15.1 dBFS RMS with 0% of samples at the rails.
+- The *sink monitor* capture on this box cannot be used as evidence: a plain 440 Hz `pw-play` tone
+  also records as a rail-to-rail square, and `pw-cat --format f32` returns interleaved garbage for
+  a planar (`F32P`) dsp port. That capture path mangles any signal, so the level was measured at
+  the mkv instead. The speakers themselves were not listened to.
+
+Installed copy updated in place (`~/.config/retroarch/cores/` and `out/libretro-core/cores/`, both
+sha256 `44a8de3c...`). Dev-env hygiene: RetroArch, its three seats and the room were killed, six
+`/dev/shm` rings removed, `/tmp` builds, captures and scripts deleted.

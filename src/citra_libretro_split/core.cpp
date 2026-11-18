@@ -145,6 +145,13 @@ struct Seat {
 
     /// Bit per entry of kPadKeys, so only key changes go on the wire.
     uint32_t held = 0;
+
+    /// One A press per seat, a couple of seconds after its first frame: a fresh
+    /// slot has no Mii, so a game can sit on a "no Mii characters" dialog that
+    /// waits for A on the touch screen (hidden in a 3+ seat layout).
+    bool nudge_done = false;
+    double nudge_press_at = 0;
+    double nudge_pressed_at = 0;
     /// L held: show this seat's touch screen instead of its action screen.
     bool peek = false;
     float pointer_x = -1;
@@ -704,6 +711,33 @@ bool start_session(int players) {
 // Input
 // ---------------------------------------------------------------------------
 
+/// A fresh slot has no Mii, so a game such as MK7 opens a "there are currently
+/// no Mii characters in Mii Maker" dialog on the touch screen and waits for A.
+/// With three or more seats that screen is behind the peek, so the tile looks
+/// frozen on the splash forever; press A once, briefly, once the seat is drawing.
+void boot_nudge(Seat& seat) {
+    if (seat.nudge_done || seat.last_seq == 0) {
+        return;
+    }
+    const double now = now_seconds();
+    if (seat.nudge_press_at == 0) {
+        seat.nudge_press_at = now + 4.0; // let the game put the dialog up first
+        return;
+    }
+    if (seat.nudge_pressed_at == 0) {
+        if (now < seat.nudge_press_at) {
+            return;
+        }
+        send_input(seat, 1, key_A, 0, 0);
+        seat.nudge_pressed_at = now;
+        return;
+    }
+    if (now - seat.nudge_pressed_at >= 0.5) { // a few frames, not one tick
+        send_input(seat, 2, key_A, 0, 0);
+        seat.nudge_done = true;
+    }
+}
+
 void pad_buttons(Seat& seat, int port) {
     uint32_t held = 0;
     for (int i = 0; i < static_cast<int>(sizeof(kPadKeys) / sizeof(kPadKeys[0])); ++i) {
@@ -1204,6 +1238,7 @@ void retro_run() {
         return;
     }
     for (int port = 0; port < static_cast<int>(seats.size()); ++port) {
+        boot_nudge(seats[port]);
         pad_buttons(seats[port], port);
     }
     composite();

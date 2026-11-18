@@ -2229,3 +2229,33 @@ symlink is repointed or `AZAHAR_SPLITS_ROOT` is exported.
 
 Dev-env hygiene: `build/` and `build-split-core/` were removed again (1452 MB freed), no seats,
 rooms or rings were left behind, and the only artifact kept is `out/libretro-core` (67 MB, ignored).
+
+## 2026-11-18 (54) - The dialog that looked like a freeze
+
+The owner installed the core (53) and reported MK7 "freezing" after selection: three tiles, each
+stuck on the Mario Kart 7 splash, seats healthy at 60 fps. It was not a freeze. Each fresh slot has
+no Mii, so MK7 opens "There are currently no Mii characters in Mii Maker" and waits for A, and in a
+3+ seat layout that dialog is on the bottom screen, which is hidden behind the peek - so the tile
+shows the splash forever while the game waits.
+
+Evidence, gathered by running the installed core in a real windowed RetroArch (Wayland display `:1`,
+forced onto XWayland with `WAYLAND_DISPLAY=/nonexistent` so `input_driver = "x"` has an X window to
+read, driven with `xdotool`, window captured with `xwd` + ffmpeg):
+
+- A 2-seat session, `x` (RetroPad A on port 1) three times: P1 left the splash for the MK7 menu
+  while P2 stayed on the splash with the dialog visible - port-to-seat routing is correct.
+- One A sent to seat 2's own input socket cleared its dialog and it reached the same menu.
+- With the 3-seat layout the same dialog exists but is invisible: only the top screen is drawn.
+
+The fix is one small behaviour in `src/citra_libretro_split/core.cpp`: `boot_nudge()` presses A on a
+seat once, from the fourth second after that seat's first frame, and releases it half a second later
+- long enough that the seat sees it across frames (a 0.12 s tap was confirmed too short), and once
+per seat so a couch never has to know about Mii Maker. Verified by starting a 3-seat session in the
+windowed instance and sending **no input at all** after Start: all three tiles were on the MK7 menu
+30 s later. The earlier 2-second version fired before the dialog was up and all three stayed on the
+splash, which is what made the timing measurable.
+
+Installed copy updated in place (`~/.config/retroarch/cores/` and `out/libretro-core/cores/`, both
+sha256 `b7bbbee9...`). Dev-env hygiene: the RetroArch instance, its three seats and the room were
+killed, six leftover `/dev/shm` rings removed, `build-split-core/` (1 MB) and the `/tmp` configs and
+captures deleted; nothing else was kept beyond the bundle.

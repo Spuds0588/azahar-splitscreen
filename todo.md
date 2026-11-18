@@ -350,6 +350,10 @@ touch are playability polish and may slip to Milestone 4.
       emulator with no `AZAHAR_SPLITS_ROOT` export. RetroArch 1.20.0 loads it by display name
       ("Azahar Splitscreen"), caches it in `core_info.cache` and writes the `players` option
       (history (53)).
+- [x] **Fresh seats start at the menu** (2026-11-18): MK7 opens a "no Mii characters" dialog on
+      the hidden bottom screen of a 3+ seat layout, which looked like a freeze; the core now taps
+      A once per seat four seconds after its first frame, and three seats reach the menu with no
+      input at all (history (54)).
 - [ ] **First windowed session from the owner's own RetroArch**: installed 2026-11-18; nobody has
       yet pressed Start on a real display and played a race, which is the only check the headless
       runs cannot make.

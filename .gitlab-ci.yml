@@ -1,0 +1,60 @@
+# DESCRIPTION: GitLab CI/CD for libRetro (NOT FOR GitLab-proper)
+#
+# Builds the split-screen launcher core only (src/citra_libretro_split); the
+# emulator is not built here, because the core launches installed Azahar
+# binaries at run time. Desktop POSIX only: the core uses fork/exec, AF_UNIX
+# sockets and POSIX shared memory, so there is no Windows, Android, iOS or
+# console build yet.
+
+.core-defs:
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+    CORENAME: azahar_splitscreen
+    BASE_CORE_ARGS: -DENABLE_LIBRETRO_SPLIT=ON -DENABLE_LIBRETRO=OFF -DENABLE_QT=OFF -DENABLE_SDL2=OFF -DENABLE_TESTS=OFF
+    CORE_ARGS: ${BASE_CORE_ARGS}
+    EXTRA_PATH: src/citra_libretro_split
+
+# Inclusion templates, required for the build to work
+include:
+  # Linux
+  - project: 'libretro-infrastructure/ci-templates'
+    file: '/linux-cmake.yml'
+
+  # MacOS x86
+  - project: 'libretro-infrastructure/ci-templates'
+    file: '/osx-cmake-x86.yml'
+
+  # MacOS ARM 64-bit
+  - project: 'libretro-infrastructure/ci-templates'
+    file: '/osx-cmake-arm64.yml'
+
+# Stages for building
+stages:
+  - build-prepare
+  - build-shared
+  - build-static
+
+################################### DESKTOPS #################################
+# Linux 64-bit
+libretro-build-linux-x64:
+  extends:
+    - .core-defs
+    - .libretro-linux-cmake-x86_64
+
+# Linux 64-bit (ARM)
+libretro-build-linux-aarch64:
+  extends:
+    - .core-defs
+    - .libretro-linux-cmake-aarch64
+
+# MacOS 64-bit
+libretro-build-osx-x64:
+  extends:
+    - .core-defs
+    - .libretro-osx-cmake-x86_64
+
+# MacOS ARM 64-bit
+libretro-build-osx-arm64:
+  extends:
+    - .core-defs
+    - .libretro-osx-cmake-arm64

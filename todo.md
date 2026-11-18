@@ -354,9 +354,13 @@ touch are playability polish and may slip to Milestone 4.
       the hidden bottom screen of a 3+ seat layout, which looked like a freeze; the core now taps
       A once per seat four seconds after its first frame, and three seats reach the menu with no
       input at all (history (54)).
-- [ ] **First windowed session from the owner's own RetroArch**: installed 2026-11-18; nobody has
-      yet pressed Start on a real display and played a race, which is the only check the headless
-      runs cannot make.
+- [x] **First windowed session from the owner's own RetroArch** (2026-11-18): the owner booted
+      sessions from their installed core and reported back twice - the Mii dialog (54) and the
+      audio mix (55) - so the display path is exercised by the person it is for.
+- [ ] **Core in the nightly buildbot**: PR prepared 2026-11-18 (history (56)) - `.gitlab-ci.yml`
+      for libretro's CI plus `packaging/libretro/azahar_splitscreen_libretro.info` for
+      libretro-super. Still needs someone to open the libretro-super PR, libretro to mirror the
+      repo, and a Windows port (the core is POSIX-only) before the download is useful there.
 - [x] **Core audio focus** (2026-11-18): the core played every seat's ring summed at
       1/sqrt(players), which phased and clipped the same music three to six times over; it now
       plays seat 1's ring alone at full level (history (55)). The windowed app adopting the same

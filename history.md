@@ -2287,3 +2287,39 @@ distinct values per 4k samples in all three seats. The seats were never the prob
 Installed copy updated in place (`~/.config/retroarch/cores/` and `out/libretro-core/cores/`, both
 sha256 `44a8de3c...`). Dev-env hygiene: RetroArch, its three seats and the room were killed, six
 `/dev/shm` rings removed, `/tmp` builds, captures and scripts deleted.
+
+## 2026-11-18 (56) - The pull request for the nightly buildbot
+
+The owner confirmed (55) fixed it and asked for a PR adding the core to RetroArch's nightly builds.
+Since 2021 a core does not enter the buildbot through a libretro-super *recipe*: the core's repo
+carries a `.gitlab-ci.yml` that includes libretro's `ci-templates`, libretro-super carries only
+`dist/info/<core>_libretro.info`, and libretro staff then mirror the repo on git.libretro.com. The
+sibling core in this tree (`azahar_libretro`, already in libretro-super) sets the precedent; ours
+follows its shape.
+
+What the PR adds:
+
+- **`.gitlab-ci.yml`** at the repo root: `CORENAME azahar_splitscreen`,
+  `BASE_CORE_ARGS -DENABLE_LIBRETRO_SPLIT=ON -DENABLE_LIBRETRO=OFF -DENABLE_QT=OFF
+  -DENABLE_SDL2=OFF -DENABLE_TESTS=OFF`, and `EXTRA_PATH src/citra_libretro_split` (that is where
+  the subdirectory target lands, and where libretro's linux template looks for the `.so`). Four
+  jobs: linux x86_64, linux aarch64, macOS x86_64, macOS arm64.
+- **`packaging/libretro/azahar_splitscreen_libretro.info`**, the file to copy into libretro-super's
+  `dist/info/`. It also corrects two things the bundled copy had wrong: `license` is `GPLv3+`
+  (`LICENSE.txt` is GPLv3, not GPLv2), and `systemname`/`systemid` are `3DS`/`3ds` like the citra
+  and azahar info files, with a 512-character one-line description that names the runtime
+  dependency.
+
+Verified: `cmake -S . -B /tmp/azsh-ci -DENABLE_LIBRETRO_SPLIT=ON -DENABLE_LIBRETRO=OFF
+-DENABLE_QT=OFF -DENABLE_SDL2=OFF -DENABLE_TESTS=OFF` then
+`cmake --build /tmp/azsh-ci --target azahar_splitscreen_libretro` builds a 100 KB core from the
+repo root - exactly the two commands libretro's linux template runs - and the repo is readable
+anonymously, so it can be mirrored.
+
+Stated in the PR rather than hidden: no Windows, Android, iOS or console jobs, because the core is
+POSIX-only (fork/exec, AF_UNIX, `shm_open`); the macOS jobs are untested (this box is Linux); and a
+nightly `.so` cannot play anything on its own - it launches `azahar` and `azahar-room` from the
+folder above itself or `AZAHAR_SPLITS_ROOT` and says so when they are missing. That dependency is
+the reviewer's call, not a footnote.
+
+Dev-env hygiene: `/tmp/azsh-ci` (the configure tree) and its log deleted.

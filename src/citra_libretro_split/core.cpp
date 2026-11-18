@@ -80,6 +80,18 @@ retro_log_printf_t log_cb = nullptr;
 constexpr uint32_t kMagic = 0x48535A41;      // 'AZSH'
 constexpr uint32_t kAudioMagic = 0x41535A41; // 'AZSA'
 constexpr size_t kHeaderBytes = 64;
+
+// The rings are written by another process, so their counters need real atomic
+// loads. atomic_ref is portable, but libc++ does not have it yet.
+#if defined(__cpp_lib_atomic_ref)
+uint64_t LoadAcquire(const uint64_t& value) {
+    return std::atomic_ref<uint64_t>(const_cast<uint64_t&>(value)).load(std::memory_order_acquire);
+}
+#else
+uint64_t LoadAcquire(const uint64_t& value) {
+    return __atomic_load_n(&value, __ATOMIC_ACQUIRE);
+}
+#endif
 constexpr uint32_t kMaxPlayers = 6;
 constexpr unsigned kWidth = 1280;
 constexpr unsigned kHeight = 720;
@@ -848,8 +860,7 @@ size_t pull_audio(Seat& seat, int32_t* mix, size_t frames, float gain) {
         return 0;
     }
     auto* header = reinterpret_cast<AudioRingHeader*>(seat.audio_base);
-    const uint64_t write =
-        std::atomic_ref<uint64_t>(header->write_frames).load(std::memory_order_acquire);
+    const uint64_t write = LoadAcquire(header->write_frames);
     const uint32_t capacity = seat.audio_capacity;
     if (capacity == 0) {
         return 0;
@@ -1255,11 +1266,11 @@ bool grab_frame(Seat& seat) {
         return false;
     }
     auto* header = reinterpret_cast<RingHeader*>(seat.base);
-    const uint64_t seq = std::atomic_ref<uint64_t>(header->seq).load(std::memory_order_acquire);
+    const uint64_t seq = LoadAcquire(header->seq);
     if (seq == 0 || seq == seat.last_seq) {
         return false;
     }
-    const uint64_t after = std::atomic_ref<uint64_t>(header->seq).load(std::memory_order_acquire);
+    const uint64_t after = LoadAcquire(header->seq);
     if (after != seq) {
         return false; // writer moved on mid-read: skip rather than tear
     }

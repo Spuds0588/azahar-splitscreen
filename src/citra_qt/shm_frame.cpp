@@ -24,6 +24,26 @@ constexpr std::uint32_t kVersion = 1;
 constexpr std::uint32_t kSlotCount = 3;
 constexpr std::size_t kHeaderBytes = 64;
 constexpr std::uint32_t kFormatBgraBottomUp = 0;
+
+// The ring is shared with another process, so its counter needs real atomic
+// access even though it is a plain struct. atomic_ref is the portable spelling,
+// but libc++ (Android, macOS) does not have it yet and MSVC has no __atomic_*.
+#if defined(__cpp_lib_atomic_ref)
+std::uint64_t LoadSeq(const std::uint64_t& value) {
+    return std::atomic_ref<std::uint64_t>(const_cast<std::uint64_t&>(value))
+        .load(std::memory_order_acquire);
+}
+void StoreSeq(std::uint64_t& value, std::uint64_t incoming) {
+    std::atomic_ref<std::uint64_t>(value).store(incoming, std::memory_order_release);
+}
+#else
+std::uint64_t LoadSeq(const std::uint64_t& value) {
+    return __atomic_load_n(&value, __ATOMIC_ACQUIRE);
+}
+void StoreSeq(std::uint64_t& value, std::uint64_t incoming) {
+    __atomic_store_n(&value, incoming, __ATOMIC_RELEASE);
+}
+#endif
 #ifdef _WIN32
 // Windows cannot grow a mapping, so one is created at the largest frame it will
 // ever carry (2048x2048 per slot) and only pages actually written commit.
@@ -151,8 +171,7 @@ bool ShmFrameRing::Resize(std::uint32_t width, std::uint32_t height) {
     const std::uint32_t slot_bytes = width * height * 4;
     const std::size_t needed = kHeaderBytes + static_cast<std::size_t>(slot_bytes) * kSlotCount;
 
-    std::uint64_t seq =
-        base_ ? std::atomic_ref<std::uint64_t>(header()->seq).load(std::memory_order_acquire) : 0;
+    std::uint64_t seq = base_ ? LoadSeq(header()->seq) : 0;
 #ifdef _WIN32
     if (needed > size_) {
         LOG_ERROR(Frontend, "shm frame ring \"{}\": {}x{} needs {} bytes, the mapping holds {}",
@@ -186,7 +205,7 @@ bool ShmFrameRing::Resize(std::uint32_t width, std::uint32_t height) {
     header()->format = kFormatBgraBottomUp;
     header()->slot_count = kSlotCount;
     header()->slot_bytes = slot_bytes;
-    std::atomic_ref<std::uint64_t>(header()->seq).store(seq, std::memory_order_release);
+    StoreSeq(header()->seq, seq);
     LOG_INFO(Frontend, "shm frame ring \"{}\": {}x{} x{} slots ({} bytes)", name_, width, height,
              kSlotCount, needed);
     return true;
@@ -205,7 +224,7 @@ std::uint8_t* ShmFrameRing::BeginFrame(std::uint32_t width, std::uint32_t height
             return nullptr;
         }
     }
-    published_ = std::atomic_ref<std::uint64_t>(header()->seq).load(std::memory_order_acquire);
+    published_ = LoadSeq(header()->seq);
     const auto slot = static_cast<std::uint32_t>((published_ + 1) % kSlotCount);
     return base_ + kHeaderBytes + static_cast<std::size_t>(slot) * header()->slot_bytes;
 }
@@ -218,5 +237,5 @@ void ShmFrameRing::EndFrame() {
     if (!in_flight_.compare_exchange_strong(expected, false, std::memory_order_acq_rel)) {
         return; // nothing in flight (already published or never requested)
     }
-    std::atomic_ref<std::uint64_t>(header()->seq).store(published_ + 1, std::memory_order_release);
+    StoreSeq(header()->seq, published_ + 1);
 }

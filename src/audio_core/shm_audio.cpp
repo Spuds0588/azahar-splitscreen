@@ -29,6 +29,25 @@ constexpr std::uint32_t kChannels = 2;
 constexpr std::uint32_t kCapacityFrames = 16384; // half a second at 32728 Hz
 constexpr std::size_t kHeaderBytes = 64;
 
+// Same story as the frame ring: a counter shared with another process, so it
+// needs atomic access. atomic_ref is portable, but libc++ does not have it yet.
+#if defined(__cpp_lib_atomic_ref)
+std::uint64_t LoadWrite(const std::uint64_t& value) {
+    return std::atomic_ref<std::uint64_t>(const_cast<std::uint64_t&>(value))
+        .load(std::memory_order_relaxed);
+}
+void StoreWrite(std::uint64_t& value, std::uint64_t incoming) {
+    std::atomic_ref<std::uint64_t>(value).store(incoming, std::memory_order_release);
+}
+#else
+std::uint64_t LoadWrite(const std::uint64_t& value) {
+    return __atomic_load_n(&value, __ATOMIC_RELAXED);
+}
+void StoreWrite(std::uint64_t& value, std::uint64_t incoming) {
+    __atomic_store_n(&value, incoming, __ATOMIC_RELEASE);
+}
+#endif
+
 #if !defined(_WIN32) && !defined(__ANDROID__)
 // shm_open takes a POSIX name, which must start with a slash on Linux and macOS.
 std::string ShmName(const std::string& name) {
@@ -158,8 +177,7 @@ void ShmAudioRing::Push(const s16* interleaved_stereo, std::size_t frames) {
         return;
     }
     auto* samples = reinterpret_cast<s16*>(base_ + kHeaderBytes);
-    std::uint64_t write =
-        std::atomic_ref<std::uint64_t>(head->write_frames).load(std::memory_order_relaxed);
+    std::uint64_t write = LoadWrite(head->write_frames);
     // More than a ring of new data at once: the reader is gone or stalled, so
     // keep only what would survive anyway.
     if (frames > capacity) {
@@ -172,8 +190,7 @@ void ShmAudioRing::Push(const s16* interleaved_stereo, std::size_t frames) {
         samples[at + 0] = interleaved_stereo[i * kChannels + 0];
         samples[at + 1] = interleaved_stereo[i * kChannels + 1];
     }
-    std::atomic_ref<std::uint64_t>(head->write_frames)
-        .store(write + frames, std::memory_order_release);
+    StoreWrite(head->write_frames, write + frames);
 }
 
 void SetShmAudioRing(std::shared_ptr<ShmAudioRing> ring) {

@@ -2323,3 +2323,29 @@ folder above itself or `AZAHAR_SPLITS_ROOT` and says so when they are missing. T
 the reviewer's call, not a footnote.
 
 Dev-env hygiene: `/tmp/azsh-ci` (the configure tree) and its log deleted.
+
+## 2026-11-18 (57) - Auditing the libretro-super PR before it goes over
+
+The owner ran the fork/copy commands and asked what else the submission needs. The audit found two
+things that would have wasted a reviewer's time:
+
+- **The pushed branch was unusable.** `azahar-splitscreen-core` was cut from a clone 135 commits
+  behind `libretro/libretro-super` master, so the pushed branch differed from upstream by 83 files
+  and 1445 deletions - an unreviewable PR with unrelated removals. Rebuilt it on current upstream
+  master and re-applied the info file: the diff is now
+  `dist/info/azahar_splitscreen_libretro.info | 33 +`, one file. The fork's branch still points at
+  the old commit, so it needs a force-push.
+- **The CI half is not published.** `Spuds0588/azahar-splitscreen` master on GitHub is still
+  `0759c6cf5`: none of the four local commits (install, boot nudge, audio, CI file) are pushed, so
+  `.gitlab-ci.yml` is not where a libretro mirror would look. libretro-super only carries metadata;
+  without the push there is nothing for their CI to build.
+
+Also confirmed: no PR exists yet (`gh pr list --head Spuds0588:azahar-splitscreen-core` is empty),
+and recipes were deliberately left out - the sister project's `mgba_splitscreen` has a recipe line
+in fourteen platform recipes because its core builds at the tree root, while this one lands in
+`build/src/citra_libretro_split/`, and recipes have not driven the buildbot since 2021. Info-only
+matches the documented flow and the newest merged core (SM2-Emu: info file plus one linux-x64
+recipe line).
+
+Left for the owner, because each needs their GitHub session: force-push the rebuilt branch, push
+master, open the PR, ask libretro to mirror the repo.

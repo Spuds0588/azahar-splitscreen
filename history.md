@@ -2169,3 +2169,63 @@ time measuring the live tail of the sink monitor instead of slicing by wall-cloc
 
 The test hook was reverted and the core rebuilt again (`EXIT=0`); the shipped tree is unchanged
 apart from this entry and the todo correction.
+
+## 2026-11-18 (53) - The core, installed into the owner's RetroArch
+
+The owner asked for a copy they could install and test, so this round produced and installed one.
+`build/` and `build-split-core/` had been deleted at the end of (52), so it started by rebuilding:
+the main tree with the same Release flags as before (`-DENABLE_LTO=OFF
+-DENABLE_QT_UPDATE_CHECKER=OFF -DENABLE_FFMPEG=OFF -DENABLE_QT_TRANSLATION=OFF`, 1194 targets,
+ccache warm) and the core on its own from `src/citra_libretro_split`. The delivered core is built
+from committed source - sha256 `ee76f44cd0ebcf1ff58863d0c60a25994ef78ada727ed9c8315004a241e9b4fc`,
+and a rebuild after reverting the `AZAHAR_SPLITS_AUTOSTART` test hook reproduced that hash exactly.
+
+A launcher core cannot run alone (it spawns `azahar-room` and one `azahar` per seat), so the bundle
+carries the engine beside it, in the layout `find_install()` resolves:
+
+```
+out/libretro-core/                      67 MB, under the existing out/ ignore rule
+  cores/azahar_splitscreen_libretro.so      98 KB   (sha256 ee76f4cd...)
+  cores/azahar_splitscreen_libretro.info    1.5 KB   new: display name "Azahar Splitscreen"
+  build/bin/Release/azahar                  60 MB
+  build/bin/Release/azahar-room            6.6 MB
+```
+
+Installed into the owner's own RetroArch (1.20.0, `~/.config/retroarch`) with:
+
+- `cp out/libretro-core/cores/azahar_splitscreen_libretro.{so,info} ~/.config/retroarch/cores/`
+- `ln -s "$PWD/out/libretro-core/build" ~/.config/retroarch/build`
+
+The symlink is the install trick: with the core in `cores/`, `find_install()` tries the folder
+holding the core and then the folder above it, so `~/.config/retroarch/build/bin/Release/azahar`
+makes the second candidate resolve with no `AZAHAR_SPLITS_ROOT` export and no copy of the 67 MB
+(one symlink instead of a duplicate engine, on a box whose build trees are GB-scale).
+
+What was verified, and how:
+
+- **The installed file is the built file**: the sha256 in `~/.config/retroarch/cores/` matches the
+  bundle, and both resolve through the symlink - `access()` on `cores/../build/bin/Release/azahar`
+  and `.../azahar-room` succeeds for both binaries.
+- **RetroArch accepts it from that path**: a headless run with a copy of the owner's config logged
+  `Loading dynamic libretro core from ".../cores/azahar_splitscreen_libretro.so"`, `Geometry:
+  1280x720, Aspect: 1.778, FPS: 60.00, Sample rate: 32728.00 Hz`, then redirected saves and states
+  under the name "Azahar Splitscreen" and wrote
+  `config/Azahar Splitscreen/Azahar Splitscreen.opt` containing `azahar_splitscreen_players = "2"`
+  - i.e. the new `.info` is parsed and the boot menu's option is exposed.
+- **The core list scans it**: `cores/core_info.cache` was rewritten during that run and grew from
+  790 to 1246 bytes, which is the entry being added - the cache stores hashed paths, so the name
+  itself cannot be grepped out of it. The parseable proof is the "Azahar Splitscreen" naming
+  RetroArch used for the override and option paths above.
+- **A session really starts from this layout**: a 2-player run through a bundle laid out the same
+  way spawned `azahar-room` plus both seats (60.0 fps, 100% speed each), with frame and audio rings
+  in `/dev/shm` and both `Player N.sock`s in the session dir. That run needed the temporary
+  autostart hook, because no input reaches a core that has no video window; the hook was reverted
+  and the core rebuilt to the hash above.
+
+Not verified: nobody has pressed Start on a real display and played a race - this host would not
+give the agent a RetroArch window, and that first real session is the owner's to run. The install
+also depends on the repo staying put: deleting `out/libretro-core` breaks the core until the
+symlink is repointed or `AZAHAR_SPLITS_ROOT` is exported.
+
+Dev-env hygiene: `build/` and `build-split-core/` were removed again (1452 MB freed), no seats,
+rooms or rings were left behind, and the only artifact kept is `out/libretro-core` (67 MB, ignored).

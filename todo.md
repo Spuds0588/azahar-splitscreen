@@ -344,6 +344,15 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **Seat failure on the TV** (2026-11-17): a seat that cannot boot (encrypted or unreadable
       dump) or exits before its first frame is reported in words on its tile, from its own logs
       (history (50)).
+- [x] **Core installed in the owner's RetroArch** (2026-11-18): the core and its `.info` sit in
+      `~/.config/retroarch/cores/`, and `~/.config/retroarch/build` is a symlink to the bundle at
+      `out/libretro-core/build`, so `find_install()`'s "folder above the core" candidate finds the
+      emulator with no `AZAHAR_SPLITS_ROOT` export. RetroArch 1.20.0 loads it by display name
+      ("Azahar Splitscreen"), caches it in `core_info.cache` and writes the `players` option
+      (history (53)).
+- [ ] **First windowed session from the owner's own RetroArch**: installed 2026-11-18; nobody has
+      yet pressed Start on a real display and played a race, which is the only check the headless
+      runs cannot make.
 - [ ] **Core audio focus**: the mix is every seat at 1/sqrt(players); a couch that finds six
       games at once muddy needs a choice (all / one player), and the windowed app could adopt the
       same ring instead of each seat opening a device.

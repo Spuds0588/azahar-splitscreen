@@ -58,14 +58,14 @@ bool InputSocket::Open(const std::string& path) {
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     address.sin_port = htons(static_cast<unsigned short>(std::atoi(path.c_str() + colon + 1)));
-    if (::bind(reinterpret_cast<SOCKET>(socket_), reinterpret_cast<sockaddr*>(&address),
+    if (::bind(static_cast<SOCKET>(socket_), reinterpret_cast<sockaddr*>(&address),
                sizeof(address)) != 0) {
         LOG_ERROR(Frontend, "input socket: bind({}) failed: {}", path, WSAGetLastError());
         Close();
         return false;
     }
     u_long nonblocking = 1;
-    ioctlsocket(reinterpret_cast<SOCKET>(socket_), FIONBIO, &nonblocking);
+    ioctlsocket(static_cast<SOCKET>(socket_), FIONBIO, &nonblocking);
     path_ = path;
     LOG_INFO(Frontend, "input socket listening on {}", path);
     return true;
@@ -107,7 +107,7 @@ bool InputSocket::Open(const std::string& path) {
 void InputSocket::Close() {
 #ifdef _WIN32
     if (socket_ != kInvalidSocket) {
-        closesocket(reinterpret_cast<SOCKET>(socket_));
+        closesocket(static_cast<SOCKET>(socket_));
         socket_ = kInvalidSocket;
     }
 #else
@@ -131,7 +131,7 @@ std::size_t InputSocket::Drain(InputMessage* out, std::size_t capacity) {
     while (count < capacity) {
         InputMessage message{};
         const int received =
-            recvfrom(reinterpret_cast<SOCKET>(socket_), reinterpret_cast<char*>(&message),
+            recvfrom(static_cast<SOCKET>(socket_), reinterpret_cast<char*>(&message),
                      sizeof(message), 0, nullptr, nullptr);
         if (received != static_cast<int>(sizeof(message))) {
             break; // nothing left, or a short/foreign datagram
@@ -141,8 +141,8 @@ std::size_t InputSocket::Drain(InputMessage* out, std::size_t capacity) {
     // Drop anything beyond what the caller can apply this tick rather than
     // letting a burst build up latency.
     char scratch[sizeof(InputMessage) * 16];
-    while (recvfrom(reinterpret_cast<SOCKET>(socket_), scratch, sizeof(scratch), 0, nullptr,
-                    nullptr) > 0) {
+    while (recvfrom(static_cast<SOCKET>(socket_), scratch, sizeof(scratch), 0, nullptr, nullptr) >
+           0) {
     }
 #else
     while (count < capacity) {

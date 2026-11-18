@@ -2437,3 +2437,15 @@ Verified locally: all of `src/` is clean at clang-format 19.1.7, the POSIX core 
 syntax check, and the Android code paths compile under `-D__ANDROID__`. Not verified: the macOS, MSVC
 and NDK builds themselves - there is no macOS host, no MSVC and no NDK on this box, so those need the
 push to confirm.
+
+## 2026-11-18 (61) - The whitespace check earns its keep
+
+`.ci/clang-format.sh` opened with a trailing-whitespace `grep` over `src *.yml *.txt *.md …`, and
+`*.yml` matched nothing at the repo root, so grep exited 2, the `if` was false and the check never
+ran at all - which is how `dist/azahar.svg` kept a trailing space for months. It now globs
+`.github/workflows/*.yml` (the YAML that actually exists) under `shopt -s nullglob`, so an unmatched
+pattern drops out instead of poisoning the command with a missing-file status. Pointing it at real
+files immediately indicted four spots - `dist/azahar.svg:2` and three blank-looking lines in
+`first_time_contributor_{detect,reopen}.yml` - and those are stripped, so the check now runs *and*
+passes. Waited for the full run afterwards, because a check that has never executed is not evidence
+of anything.

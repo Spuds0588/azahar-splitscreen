@@ -41,7 +41,7 @@ jobs:
               pull_number: pr.number,
               state: 'closed',
             });
-            
+
             // Show the new contributor how to verify (they need to write a short poem about the Wii and 3DS being lovers)
             await github.rest.issues.createComment({
               owner,

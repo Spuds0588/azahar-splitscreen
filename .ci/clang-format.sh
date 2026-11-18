@@ -1,7 +1,12 @@
 #!/bin/bash -ex
 
-if grep -nrI '\s$' src *.yml *.txt *.md .gitignore .gitmodules .ci* dist/*.desktop \
-                 dist/*.svg dist/*.xml; then
+# Nullglob, so a pattern that matches nothing disappears instead of reaching grep
+# as a literal path: grep exits 2 on a missing file, which quietly disabled this
+# whole check while `*.yml` matched nothing at the repo root.
+shopt -s nullglob
+
+if grep -nrI '\s$' src .github/workflows/*.yml *.txt *.md .gitignore .gitmodules .ci* \
+                 dist/*.desktop dist/*.svg dist/*.xml; then
     echo Trailing whitespace found, aborting
     exit 1
 fi

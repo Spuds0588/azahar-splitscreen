@@ -25,7 +25,7 @@ jobs:
               repo,
               pull_number: issue.number,
             });
-            
+
             // Only allow verification of the comment user is the author
             if (comment.user.login !== pr.user.login) {
               return;
@@ -37,7 +37,7 @@ jobs:
             });
             const username = pr.user.login.toLowerCase();
             const displayName = (user.name || '').toLowerCase();
-            
+
             // Make comment body lowercase and split words
             const body = comment.body.toLowerCase().trim().replace(/[^a-z0-9_\-\s]/g, '').split(/\s+/);
 

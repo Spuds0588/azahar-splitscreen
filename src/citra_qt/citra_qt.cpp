@@ -75,7 +75,9 @@
 #endif
 #include "citra_qt/game_list.h"
 #include "citra_qt/hotkeys.h"
+#ifndef _WIN32
 #include "citra_qt/inproc_seats.h"
+#endif
 #include "citra_qt/loading_screen.h"
 #include "citra_qt/movie/movie_play_dialog.h"
 #include "citra_qt/movie/movie_record_dialog.h"
@@ -4947,6 +4949,7 @@ int LaunchQtFrontend(int argc, char* argv[]) {
 
     auto& system{Core::System::GetInstance()};
 
+#ifndef _WIN32
     // In-process seats spike: N Systems and N render contexts in one process and
     // one window. Parsed before GMainWindow exists because this mode has no
     // main window, game list or menus at all.
@@ -4967,6 +4970,7 @@ int LaunchQtFrontend(int argc, char* argv[]) {
         seats.Shutdown();
         return status;
     }
+#endif
 
     // Split-screen fork: a headless seat can hand its audio to a shared-memory
     // ring so one frontend owns the only stream. Parsed here because the window

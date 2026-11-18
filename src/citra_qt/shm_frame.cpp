@@ -151,7 +151,8 @@ bool ShmFrameRing::Resize(std::uint32_t width, std::uint32_t height) {
     const std::uint32_t slot_bytes = width * height * 4;
     const std::size_t needed = kHeaderBytes + static_cast<std::size_t>(slot_bytes) * kSlotCount;
 
-    std::uint64_t seq = base_ ? __atomic_load_n(&header()->seq, __ATOMIC_ACQUIRE) : 0;
+    std::uint64_t seq =
+        base_ ? std::atomic_ref<std::uint64_t>(header()->seq).load(std::memory_order_acquire) : 0;
 #ifdef _WIN32
     if (needed > size_) {
         LOG_ERROR(Frontend, "shm frame ring \"{}\": {}x{} needs {} bytes, the mapping holds {}",
@@ -185,7 +186,7 @@ bool ShmFrameRing::Resize(std::uint32_t width, std::uint32_t height) {
     header()->format = kFormatBgraBottomUp;
     header()->slot_count = kSlotCount;
     header()->slot_bytes = slot_bytes;
-    __atomic_store_n(&header()->seq, seq, __ATOMIC_RELEASE);
+    std::atomic_ref<std::uint64_t>(header()->seq).store(seq, std::memory_order_release);
     LOG_INFO(Frontend, "shm frame ring \"{}\": {}x{} x{} slots ({} bytes)", name_, width, height,
              kSlotCount, needed);
     return true;
@@ -204,7 +205,7 @@ std::uint8_t* ShmFrameRing::BeginFrame(std::uint32_t width, std::uint32_t height
             return nullptr;
         }
     }
-    published_ = __atomic_load_n(&header()->seq, __ATOMIC_ACQUIRE);
+    published_ = std::atomic_ref<std::uint64_t>(header()->seq).load(std::memory_order_acquire);
     const auto slot = static_cast<std::uint32_t>((published_ + 1) % kSlotCount);
     return base_ + kHeaderBytes + static_cast<std::size_t>(slot) * header()->slot_bytes;
 }
@@ -217,5 +218,5 @@ void ShmFrameRing::EndFrame() {
     if (!in_flight_.compare_exchange_strong(expected, false, std::memory_order_acq_rel)) {
         return; // nothing in flight (already published or never requested)
     }
-    __atomic_store_n(&header()->seq, published_ + 1, __ATOMIC_RELEASE);
+    std::atomic_ref<std::uint64_t>(header()->seq).store(published_ + 1, std::memory_order_release);
 }

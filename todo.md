@@ -357,8 +357,9 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **First windowed session from the owner's own RetroArch** (2026-11-18): the owner booted
       sessions from their installed core and reported back twice - the Mii dialog (54) and the
       audio mix (55) - so the display path is exercised by the person it is for.
-- [ ] **Green CI on master**: the whitespace `*.yml` glob is fixed too (history (61)); the three
-  build/format causes are fixed (history (60)) - Windows/Android `shm_open`,
+- [ ] **Green CI on master**: format, libretro (linux/windows/android) and android (vanilla) are green
+  (history (60)-(62)); MSVC and MXE need one more run after the `atomic_ref` and inproc-seats fixes,
+  and the `macos-26` lane cannot start until the owner checks Billing -> Actions - Windows/Android `shm_open`,
   the macOS `__unix__` include guard, and clang-format. Push, then read the macOS, MSVC, MXE, Android
   and libretro jobs; the format job should be green immediately.
 - [ ] **Windows build of the stack**: the launcher and the seat IPC (frame ring, audio ring, input)

@@ -48,6 +48,7 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -846,8 +847,9 @@ size_t pull_audio(Seat& seat, int32_t* mix, size_t frames, float gain) {
     if (seat.audio_base == nullptr) {
         return 0;
     }
-    const auto* header = reinterpret_cast<const AudioRingHeader*>(seat.audio_base);
-    const uint64_t write = __atomic_load_n(&header->write_frames, __ATOMIC_ACQUIRE);
+    auto* header = reinterpret_cast<AudioRingHeader*>(seat.audio_base);
+    const uint64_t write =
+        std::atomic_ref<uint64_t>(header->write_frames).load(std::memory_order_acquire);
     const uint32_t capacity = seat.audio_capacity;
     if (capacity == 0) {
         return 0;
@@ -1253,11 +1255,11 @@ bool grab_frame(Seat& seat) {
         return false;
     }
     auto* header = reinterpret_cast<RingHeader*>(seat.base);
-    const uint64_t seq = __atomic_load_n(&header->seq, __ATOMIC_ACQUIRE);
+    const uint64_t seq = std::atomic_ref<uint64_t>(header->seq).load(std::memory_order_acquire);
     if (seq == 0 || seq == seat.last_seq) {
         return false;
     }
-    const uint64_t after = __atomic_load_n(&header->seq, __ATOMIC_ACQUIRE);
+    const uint64_t after = std::atomic_ref<uint64_t>(header->seq).load(std::memory_order_acquire);
     if (after != seq) {
         return false; // writer moved on mid-read: skip rather than tear
     }

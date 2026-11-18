@@ -3,7 +3,9 @@ project(azahar-splitscreen-libretro LANGUAGES CXX)
 
 # A launcher core, not a port: it spawns the emulator and composites its rings,
 # so it deliberately links nothing from Azahar.
-set(CMAKE_CXX_STANDARD 17)
+# 20 for std::atomic_ref, which reads the rings' counters portably (MSVC has no
+# __atomic_* builtins).
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(azahar_splitscreen_libretro SHARED core.cpp)

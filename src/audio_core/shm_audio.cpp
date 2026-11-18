@@ -2,6 +2,7 @@
 
 #include "audio_core/shm_audio.h"
 
+#include <atomic>
 #include <cstring>
 #include <mutex>
 
@@ -157,7 +158,8 @@ void ShmAudioRing::Push(const s16* interleaved_stereo, std::size_t frames) {
         return;
     }
     auto* samples = reinterpret_cast<s16*>(base_ + kHeaderBytes);
-    std::uint64_t write = __atomic_load_n(&head->write_frames, __ATOMIC_RELAXED);
+    std::uint64_t write =
+        std::atomic_ref<std::uint64_t>(head->write_frames).load(std::memory_order_relaxed);
     // More than a ring of new data at once: the reader is gone or stalled, so
     // keep only what would survive anyway.
     if (frames > capacity) {
@@ -170,7 +172,8 @@ void ShmAudioRing::Push(const s16* interleaved_stereo, std::size_t frames) {
         samples[at + 0] = interleaved_stereo[i * kChannels + 0];
         samples[at + 1] = interleaved_stereo[i * kChannels + 1];
     }
-    __atomic_store_n(&head->write_frames, write + frames, __ATOMIC_RELEASE);
+    std::atomic_ref<std::uint64_t>(head->write_frames)
+        .store(write + frames, std::memory_order_release);
 }
 
 void SetShmAudioRing(std::shared_ptr<ShmAudioRing> ring) {

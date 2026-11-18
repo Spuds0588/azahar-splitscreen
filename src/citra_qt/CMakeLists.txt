@@ -29,8 +29,9 @@ add_library(citra_qt STATIC EXCLUDE_FROM_ALL
     camera/qt_multimedia_camera.h
     citra_qt.cpp
     citra_qt.h
-    inproc_seats.cpp
-    inproc_seats.h
+    # The in-process seats spike is POSIX-only (unix datagrams, /dev/shm) and a
+    # documented no-go; see plans/in-process-seats.md.
+    $<$<NOT:$<PLATFORM_ID:Windows>>:inproc_seats.cpp inproc_seats.h>
     input_socket.cpp
     input_socket.h
     shm_frame.cpp

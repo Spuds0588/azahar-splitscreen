@@ -2449,3 +2449,27 @@ files immediately indicted four spots - `dist/azahar.svg:2` and three blank-look
 `first_time_contributor_{detect,reopen}.yml` - and those are stripped, so the check now runs *and*
 passes. Waited for the full run afterwards, because a check that has never executed is not evidence
 of anything.
+
+## 2026-11-18 (62) - Two more Windows blockers, both mine
+
+The first run after the fixes went mostly green - `citra-format`, all three `citra-libretro` builds
+(linux, windows, android) and `android (vanilla)` pass now - and it indicted the last two things
+between Windows and a build:
+
+- **`src/citra_qt/inproc_seats.cpp` maps frames with `sys/mman.h`** and every Qt build compiles it, so
+  MXE died there. The in-process seats spike is a documented no-go that only ever ran on POSIX, so it
+  is now `$<$<NOT:$<PLATFORM_ID:Windows>>:` in `src/citra_qt/CMakeLists.txt`, and its include and the
+  `--inproc-seats` block in `citra_qt.cpp` sit behind `#ifndef _WIN32`.
+- **`__atomic_load_n`/`__atomic_store_n`** in the three ring files are GCC/Clang builtins, and MSVC has
+  neither, so it stopped at `shm_audio.cpp(160)`. They are `std::atomic_ref<std::uint64_t>` now with
+  the same relaxed/acquire/release orders - one portable spelling, no per-compiler branch - which is
+  why the standalone core moved to C++20.
+
+One thing that is not mine and not fixable from here: `macos-26` never starts. `build.yml`'s macos job
+and libretro's macos/ios/tvos jobs all ask for `runs-on: 'macos-26'`, and every one was cancelled
+after about 15 minutes with `runner: null`, no steps and no log at all (`BlobNotFound`), while
+`release.yml`'s `macos-15-intel` job did run earlier the same day. That is runner availability or
+minute quota - a macOS minute bills at 10x - so it belongs in Billing -> Actions, not in a patch.
+
+Verified locally: POSIX core and the three seat files, the Android paths under `-D__ANDROID__`, and
+clang-format 19.1.7 across `src/` are all clean. The Windows verdicts still need the runners.

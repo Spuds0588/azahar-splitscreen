@@ -357,6 +357,10 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **First windowed session from the owner's own RetroArch** (2026-11-18): the owner booted
       sessions from their installed core and reported back twice - the Mii dialog (54) and the
       audio mix (55) - so the display path is exercised by the person it is for.
+- [ ] **Windows build of the stack**: the launcher and the seat IPC (frame ring, audio ring, input)
+  now have Windows implementations that compile clean with mingw-w64 14 (history (59)), but nothing
+  has run there. Next: build Azahar for Windows (Qt 6 + MSVC or mingw), then a Windows archive in
+  the release and a windows job in `.gitlab-ci.yml`.
 - [ ] **Core in the nightly buildbot**: `master` is pushed (the `.gitlab-ci.yml` is on GitHub) and
       libretro-super PR #2206 is open with the clean one-file diff (58). Left: ask libretro to
       mirror `Spuds0588/azahar-splitscreen` on their GitLab so CI can build it, and a Windows port

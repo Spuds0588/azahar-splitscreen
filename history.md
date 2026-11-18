@@ -2366,3 +2366,40 @@ disclosure, plus why recipes were left out.
 
 Still not verified: libretro's own CI has not been run (it needs the repo mirrored on their GitLab,
 which is a request rather than a PR), and no macOS artifact has been built anywhere.
+
+## 2026-11-18 (59) - A release people can download, and the launcher learns Windows
+
+Two jobs in one sitting. First the release the owner asked for: `v0.1.0` on this repo, a 23 MB
+tarball (`azahar-splitscreen-0.1.0-linux-x86_64.tar.gz`) holding the core, its `.info`, `azahar`,
+`azahar-room` and `README.txt` (from `packaging/RETROARCH.txt`), because a nightly core alone cannot
+run without the emulator beside it. Both binaries were checked to start from inside the unpacked
+archive (`azahar --version`, `azahar-room --help`) before upload.
+
+Then the Windows port. Windows has no `fork`/`exec`, no `shm_open` and no datagram unix sockets, so
+each of the three seat IPC channels got an implementation:
+
+- **`src/citra_libretro_split/core.cpp`**: `CreateProcessA` with the seat's stdout/stderr pointed at
+  its log file, `TerminateProcess`/`WaitForSingleObject` teardown (ids still kept, reopen by pid),
+  named file mappings (`Local\azsh-*`) opened with `OpenFileMapping`/`MapViewOfFile` and sized by
+  `VirtualQuery`, input as loopback UDP datagrams (one per message, like the unix socket),
+  `GetModuleHandleEx`/`GetModuleFileName` for `exe_dir()`, `USERPROFILE`/`AppData` for saves,
+  `make_dir`/`sleep_ms`/`current_pid` helpers, `azahar.exe`/`azahar-room.exe`, and `ws2_32`.
+- **`src/citra_qt/shm_frame.cpp`**: a named mapping created at the largest frame it can carry
+  (2048x2048x4 per slot, 50 MB, pages commit only when written) because Windows cannot grow a
+  mapping; `Resize` then only rewrites the header and fails loudly if a frame is bigger than that.
+- **`src/audio_core/shm_audio.cpp`**: the same mapping, at its exact fixed size.
+- **`src/citra_qt/input_socket.cpp`**: binds `host:port` as loopback UDP, non-blocking via
+  `ioctlsocket`, same 12-byte messages and same fire-and-forget delivery.
+
+Verified with a real Windows compiler: `g++-mingw-w64-x86-64-posix` 14 (downloaded as `.deb`s and
+unpacked into `/tmp`, no root, deleted afterwards) compiles `core.cpp`, `shm_frame.cpp`,
+`shm_audio.cpp` and `input_socket.cpp` for `x86_64-w64-mingw32` with `-Wall -Wextra` and **no
+warnings**, and the core links to a 181 KB `azahar_splitscreen_libretro.dll` against `ws2_32`.
+The POSIX side was re-checked in the same pass: the Linux core builds and the three seat files pass
+a `-fsyntax-only` check, so neither path was broken for the other.
+
+Not verified, and the honest limit of this round: **nothing ran on Windows.** There is no wine and no
+Windows machine here, so the IPC handshake, `CREATE_NO_WINDOW` logging and the mapping sizes are
+reasoned rather than observed, and there is no Windows `azahar.exe` to launch anyway - that needs
+upstream's Windows toolchain and Qt 6, which this box does not have. The port is code-complete for
+this fork's own files; a Windows build is the next milestone, not a shipped capability.

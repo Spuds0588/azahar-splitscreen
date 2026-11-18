@@ -7,10 +7,18 @@
 
 #include "common/logging/log.h"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 namespace AudioCore {
 namespace {
@@ -20,10 +28,12 @@ constexpr std::uint32_t kChannels = 2;
 constexpr std::uint32_t kCapacityFrames = 16384; // half a second at 32728 Hz
 constexpr std::size_t kHeaderBytes = 64;
 
+#ifndef _WIN32
 // shm_open takes a POSIX name, which must start with a slash on Linux and macOS.
 std::string ShmName(const std::string& name) {
     return (!name.empty() && name.front() == '/') ? name : "/" + name;
 }
+#endif
 
 std::mutex registry_mutex;
 std::shared_ptr<ShmAudioRing> active_ring;
@@ -55,24 +65,43 @@ ShmAudioRing::Header* ShmAudioRing::header() const {
 bool ShmAudioRing::Open(const std::string& name, u32 sample_rate) {
     Close();
     name_ = name;
+    const std::size_t needed = kHeaderBytes + static_cast<std::size_t>(kCapacityFrames) * kChannels *
+                                                   sizeof(s16);
+    void* mapped = nullptr;
+#ifdef _WIN32
+    // A named file mapping replaces /dev/shm. The ring is a fixed size, so it is
+    // created at that size and never has to grow.
+    mapping_ = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0,
+                                  static_cast<DWORD>(needed), ("Local\\" + name).c_str());
+    if (mapping_ == nullptr) {
+        LOG_ERROR(Audio, "shm audio ring \"{}\": CreateFileMapping failed ({})", name,
+                  GetLastError());
+        return false;
+    }
+    mapped = MapViewOfFile(mapping_, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+    if (mapped == nullptr) {
+        LOG_ERROR(Audio, "shm audio ring \"{}\": MapViewOfFile failed ({})", name, GetLastError());
+        Close();
+        return false;
+    }
+#else
     fd_ = shm_open(ShmName(name).c_str(), O_CREAT | O_RDWR, 0600);
     if (fd_ < 0) {
         LOG_ERROR(Audio, "shm audio ring \"{}\": shm_open failed", name);
         return false;
     }
-    const std::size_t needed = kHeaderBytes + static_cast<std::size_t>(kCapacityFrames) * kChannels *
-                                                   sizeof(s16);
     if (ftruncate(fd_, static_cast<off_t>(needed)) != 0) {
         LOG_ERROR(Audio, "shm audio ring \"{}\": ftruncate to {} failed", name, needed);
         Close();
         return false;
     }
-    void* mapped = mmap(nullptr, needed, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
+    mapped = mmap(nullptr, needed, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
     if (mapped == MAP_FAILED) {
         LOG_ERROR(Audio, "shm audio ring \"{}\": mmap failed", name);
         Close();
         return false;
     }
+#endif
     base_ = static_cast<std::uint8_t*>(mapped);
     size_ = needed;
     std::memset(base_, 0, kHeaderBytes);
@@ -88,6 +117,16 @@ bool ShmAudioRing::Open(const std::string& name, u32 sample_rate) {
 }
 
 void ShmAudioRing::Close() {
+#ifdef _WIN32
+    if (base_ != nullptr) {
+        UnmapViewOfFile(base_);
+        base_ = nullptr;
+    }
+    if (mapping_ != nullptr) {
+        CloseHandle(mapping_);
+        mapping_ = nullptr;
+    }
+#else
     if (base_ != nullptr) {
         munmap(base_, size_);
         base_ = nullptr;
@@ -97,6 +136,7 @@ void ShmAudioRing::Close() {
         fd_ = -1;
         shm_unlink(ShmName(name_).c_str()); // the reader keeps its own mapping alive
     }
+#endif
     size_ = 0;
 }
 

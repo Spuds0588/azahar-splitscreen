@@ -5,10 +5,18 @@
 #include <cstring>
 #include <string>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 namespace {
 constexpr std::uint32_t kMagic = 0x48535A41; // 'AZSH'
@@ -16,12 +24,18 @@ constexpr std::uint32_t kVersion = 1;
 constexpr std::uint32_t kSlotCount = 3;
 constexpr std::size_t kHeaderBytes = 64;
 constexpr std::uint32_t kFormatBgraBottomUp = 0;
-
+#ifdef _WIN32
+// Windows cannot grow a mapping, so one is created at the largest frame it will
+// ever carry (2048x2048 per slot) and only pages actually written commit.
+constexpr std::size_t kMaxSlotBytes = 2048u * 2048u * 4u;
+constexpr std::size_t kMaxBytes = kHeaderBytes + kMaxSlotBytes * kSlotCount;
+#else
 // shm_open takes a POSIX name, which must start with a slash on both Linux and
 // macOS. Session logs and the viewer keep using the plain name.
 std::string ShmName(const std::string& name) {
     return (!name.empty() && name.front() == '/') ? name : "/" + name;
 }
+#endif
 } // namespace
 
 struct ShmFrameRing::Header {
@@ -49,6 +63,34 @@ ShmFrameRing::~ShmFrameRing() {
 bool ShmFrameRing::Open(const std::string& name) {
     Close();
     name_ = name;
+#ifdef _WIN32
+    // A named file mapping replaces /dev/shm: no path, no stale file to clear,
+    // and it disappears with its last handle.
+    mapping_ = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0,
+                                  static_cast<DWORD>(kMaxBytes), ("Local\\" + name).c_str());
+    if (mapping_ == nullptr) {
+        LOG_ERROR(Frontend, "shm frame ring \"{}\": CreateFileMapping failed ({})", name,
+                  GetLastError());
+        return false;
+    }
+    void* mapped = MapViewOfFile(mapping_, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+    if (mapped == nullptr) {
+        LOG_ERROR(Frontend, "shm frame ring \"{}\": MapViewOfFile failed ({})", name,
+                  GetLastError());
+        CloseHandle(mapping_);
+        mapping_ = nullptr;
+        return false;
+    }
+    base_ = static_cast<std::uint8_t*>(mapped);
+    size_ = kMaxBytes;
+    std::memset(base_, 0, kHeaderBytes);
+    header()->magic = kMagic;
+    header()->version = kVersion;
+    header()->slot_count = kSlotCount;
+    header()->format = kFormatBgraBottomUp;
+    LOG_INFO(Frontend, "shm frame ring \"{}\" created", name);
+    return true;
+#else
     fd_ = shm_open(ShmName(name).c_str(), O_CREAT | O_RDWR, 0600);
     if (fd_ < 0) {
         LOG_ERROR(Frontend, "shm frame ring \"{}\": shm_open failed", name);
@@ -76,9 +118,20 @@ bool ShmFrameRing::Open(const std::string& name) {
     header()->format = kFormatBgraBottomUp;
     LOG_INFO(Frontend, "shm frame ring \"{}\" created", name);
     return true;
+#endif
 }
 
 void ShmFrameRing::Close() {
+#ifdef _WIN32
+    if (base_ != nullptr) {
+        UnmapViewOfFile(base_);
+        base_ = nullptr;
+    }
+    if (mapping_ != nullptr) {
+        CloseHandle(mapping_);
+        mapping_ = nullptr;
+    }
+#else
     if (base_ != nullptr) {
         munmap(base_, size_);
         base_ = nullptr;
@@ -88,6 +141,7 @@ void ShmFrameRing::Close() {
         fd_ = -1;
         shm_unlink(ShmName(name_).c_str()); // the viewer keeps its own mapping alive
     }
+#endif
     size_ = 0;
     in_flight_.store(false, std::memory_order_release);
     published_ = 0;
@@ -98,6 +152,14 @@ bool ShmFrameRing::Resize(std::uint32_t width, std::uint32_t height) {
     const std::size_t needed = kHeaderBytes + static_cast<std::size_t>(slot_bytes) * kSlotCount;
 
     std::uint64_t seq = base_ ? __atomic_load_n(&header()->seq, __ATOMIC_ACQUIRE) : 0;
+#ifdef _WIN32
+    if (needed > size_) {
+        LOG_ERROR(Frontend, "shm frame ring \"{}\": {}x{} needs {} bytes, the mapping holds {}",
+                  name_, width, height, needed, size_);
+        return false;
+    }
+    // Already the largest it will ever be: only the header has to change.
+#else
     if (base_ != nullptr) {
         munmap(base_, size_);
         base_ = nullptr;
@@ -113,6 +175,7 @@ bool ShmFrameRing::Resize(std::uint32_t width, std::uint32_t height) {
     }
     base_ = static_cast<std::uint8_t*>(mapped);
     size_ = needed;
+#endif
 
     header()->magic = kMagic;
     header()->version = kVersion;
@@ -129,7 +192,7 @@ bool ShmFrameRing::Resize(std::uint32_t width, std::uint32_t height) {
 }
 
 std::uint8_t* ShmFrameRing::BeginFrame(std::uint32_t width, std::uint32_t height) {
-    if (fd_ < 0 || width == 0 || height == 0) {
+    if (!IsOpen() || width == 0 || height == 0) {
         return nullptr;
     }
     bool expected = false;
@@ -147,7 +210,7 @@ std::uint8_t* ShmFrameRing::BeginFrame(std::uint32_t width, std::uint32_t height
 }
 
 void ShmFrameRing::EndFrame() {
-    if (fd_ < 0) {
+    if (!IsOpen()) {
         return;
     }
     bool expected = true;

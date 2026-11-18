@@ -55,7 +55,13 @@ public:
 private:
     Header* header() const;
 
+#ifdef _WIN32
+    /// A named file mapping has no descriptor to reopen by name, so the handle
+    /// is kept beside the view it owns.
+    void* mapping_ = nullptr;
+#else
     int fd_ = -1;
+#endif
     std::uint8_t* base_ = nullptr;
     std::size_t size_ = 0;
     std::string name_;

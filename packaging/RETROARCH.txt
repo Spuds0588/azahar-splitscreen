@@ -1,0 +1,73 @@
+Azahar Splitscreen - RetroArch core
+===================================
+
+Couch split-screen for Nintendo 3DS in RetroArch: one cartridge dump on 2-6
+consoles at once, tiled in one picture, one RetroPad per player.
+
+This bundle is the core plus the emulator it launches. RetroArch owns the
+window, the controllers, the volume and the recorder.
+
+Install
+-------
+1. Unpack this archive anywhere you like, for example
+
+       ~/azahar-splitscreen
+
+2. Copy the core and its metadata into RetroArch's cores folder:
+
+       cp cores/azahar_splitscreen_libretro.so cores/azahar_splitscreen_libretro.info \
+          ~/.config/retroarch/cores/
+
+   (Settings -> Directory -> Cores shows the folder RetroArch uses.)
+
+3. Tell the core where this folder is. Either export it before starting
+   RetroArch:
+
+       export AZAHAR_SPLITS_ROOT="$HOME/azahar-splitscreen"
+
+   or leave the core inside this folder and load it from here, which needs no
+   variable at all. Without either, the core says on screen that it cannot find
+   the emulator.
+
+4. Restart RetroArch, load the core ("Nintendo - 3DS (Azahar Splitscreen)") and
+   pick your own decrypted .3ds/.cci dump.
+
+Play
+----
+The boot menu asks how many players: left/right on RetroPad 1 changes 2-6,
+Start begins. The core starts azahar-room plus one headless emulator per player
+and tiles them. RetroPad port 1 drives player 1, port 2 player 2, and so on, so
+set up one controller per player in RetroArch's controller settings.
+
+Sound comes out of RetroArch, from player 1's console only: the seats open no
+audio device of their own and write into a shared-memory ring instead, so
+RetroArch's volume, mute and recorder apply to the whole couch.
+
+A player that cannot boot (an encrypted dump, a seat that exits) says so in
+words on its own tile. Hold nothing: a fresh slot has no Mii, so each seat gets
+one automatic A press four seconds after its first frame to clear the "no Mii
+characters in Mii Maker" dialog that Mario Kart 7 opens on the touch screen.
+
+Requirements
+------------
+- Linux x86_64. This build was made on a current Debian/Ubuntu-family system;
+  it needs Qt 6 (Widgets, Multimedia, Concurrent, DBus), SDL2, PulseAudio and
+  OpenGL 4.3 or Vulkan 1.1, as Azahar itself does. On Debian/Ubuntu:
+
+       sudo apt install qt6-base-dev libqt6multimedia6 libsdl2-2.0-0 libpulse0
+
+- RetroArch 1.20 or newer, with a working OpenGL or Vulkan driver.
+- Your own decrypted dumps. No ROMs, keys or NAND data are included.
+
+Known limits (by design, not bugs)
+----------------------------------
+- Every seat plays the same dump. Per-player ROMs are not supported.
+- Save states, cheats, rewind and run-ahead are not implemented in the core.
+- Three or more players show the top screen only; two players show both.
+- This archive is the Linux x86_64 build. The launcher and the shared-memory
+  path also have a Windows implementation, but no Windows build of the emulator
+  it launches is published yet.
+- Verified with two bootable dumps (Mario Kart 7 and Monster Hunter Stories);
+  other titles are untested.
+
+Not affiliated with or endorsed by Nintendo.

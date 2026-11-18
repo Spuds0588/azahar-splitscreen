@@ -22,6 +22,17 @@
 
 #include "libretro.h"
 
+#ifdef _WIN32
+// Winsock's headers have to come before windows.h.
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <sys/types.h>
+#else
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -30,9 +41,11 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -74,6 +87,41 @@ constexpr unsigned kAudioRate = 32728;
 /// One video frame's worth of audio at that rate (the rate does not divide by
 /// 60, so the exact count is carried between calls), plus slack.
 constexpr size_t kAudioFrames = kAudioRate / 60 + 2;
+
+#ifdef _WIN32
+/// The seat binaries carry the platform's extension.
+constexpr const char* kEmulatorName = "azahar.exe";
+constexpr const char* kRoomName = "azahar-room.exe";
+/// A UDP socket, spelled for whichever platform is compiling.
+using socket_t = SOCKET;
+constexpr socket_t kInvalidSocket = INVALID_SOCKET;
+inline void ensure_winsock() {
+    static const bool started = [] {
+        WSADATA data {};
+        WSAStartup(MAKEWORD(2, 2), &data);
+        return true;
+    }();
+    (void)started;
+}
+inline int close_socket(socket_t fd) {
+    return closesocket(fd);
+}
+inline int current_pid() {
+    return static_cast<int>(GetCurrentProcessId());
+}
+#else
+constexpr const char* kEmulatorName = "azahar";
+constexpr const char* kRoomName = "azahar-room";
+using socket_t = int;
+constexpr socket_t kInvalidSocket = -1;
+inline void ensure_winsock() {}
+inline int close_socket(socket_t fd) {
+    return close(fd);
+}
+inline int current_pid() {
+    return static_cast<int>(getpid());
+}
+#endif
 
 struct RingHeader {
     uint32_t magic;
@@ -124,6 +172,12 @@ struct Seat {
     std::string audio_ring_name;
     int audio_fd = -1;
     uint8_t* audio_base = nullptr;
+#ifdef _WIN32
+    /// A named file mapping has no descriptor to reopen: keep the handle so it
+    /// can be closed with its view.
+    HANDLE map_handle = nullptr;
+    HANDLE audio_map_handle = nullptr;
+#endif
     size_t audio_size = 0;
     uint32_t audio_capacity = 0;
     uint64_t audio_read = 0;
@@ -288,7 +342,11 @@ void draw_centered(int y, int scale, uint32_t color, const std::string& text) {
 // ---------------------------------------------------------------------------
 
 std::string home_dir() {
+#ifdef _WIN32
+    const char* home = getenv("USERPROFILE");
+#else
     const char* home = getenv("HOME");
+#endif
     return home != nullptr ? std::string(home) : std::string(".");
 }
 
@@ -297,11 +355,31 @@ std::string save_dir() {
     if (environ_cb != nullptr && environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) && dir != nullptr) {
         return dir;
     }
+#ifdef _WIN32
+    return home_dir() + "/AppData/Roaming/RetroArch/saves";
+#else
     return home_dir() + "/.config/retroarch/saves";
+#endif
+}
+
+void make_dir(const std::string& path) {
+#ifdef _WIN32
+    CreateDirectoryA(path.c_str(), nullptr);
+#else
+    mkdir(path.c_str(), 0755);
+#endif
+}
+
+void sleep_ms(unsigned milliseconds) {
+#ifdef _WIN32
+    Sleep(milliseconds);
+#else
+    usleep(milliseconds * 1000);
+#endif
 }
 
 std::string dirname_of(const std::string& path) {
-    const size_t slash = path.find_last_of('/');
+    const size_t slash = path.find_last_of("/\\");
     return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
 }
 
@@ -333,12 +411,37 @@ std::string read_tail(const std::string& path, size_t limit = 65536) {
     return text;
 }
 
+/// True when `path` names a file this process could run. Windows has no
+/// execute bit, so existence is the whole test there.
+bool executable(const std::string& path) {
+#ifdef _WIN32
+    const DWORD attributes = GetFileAttributesA(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+#else
+    return access(path.c_str(), X_OK) == 0;
+#endif
+}
+
 std::string exe_dir() {
+#ifdef _WIN32
+    HMODULE self = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCSTR>(&retro_init), &self) != 0) {
+        char path[MAX_PATH];
+        const DWORD length = GetModuleFileNameA(self, path, sizeof(path));
+        if (length > 0) {
+            return dirname_of(std::string(path, length));
+        }
+    }
+    return ".";
+#else
     Dl_info info {};
     if (dladdr(reinterpret_cast<void*>(&retro_init), &info) != 0 && info.dli_fname != nullptr) {
         return dirname_of(info.dli_fname);
     }
     return ".";
+#endif
 }
 
 /// The folder holding `build/bin/Release/azahar`. A beta bundle puts the core
@@ -354,9 +457,8 @@ std::string find_install() {
     candidates.push_back(here + "/..");
     candidates.push_back(".");
     for (const auto& candidate : candidates) {
-        const std::string released = candidate + "/build/bin/Release/azahar";
-        const std::string plain = candidate + "/build/bin/azahar";
-        if (access(released.c_str(), X_OK) == 0 || access(plain.c_str(), X_OK) == 0) {
+        if (executable(candidate + "/build/bin/Release/" + kEmulatorName) ||
+            executable(candidate + "/build/bin/" + kEmulatorName)) {
             return candidate;
         }
     }
@@ -364,15 +466,74 @@ std::string find_install() {
 }
 
 std::string emulator_path(const std::string& install) {
-    const std::string released = install + "/build/bin/Release/azahar";
-    if (access(released.c_str(), X_OK) == 0) {
+    const std::string released = install + "/build/bin/Release/" + kEmulatorName;
+    if (executable(released)) {
         return released;
     }
-    return install + "/build/bin/azahar";
+    return install + "/build/bin/" + kEmulatorName;
+}
+
+/// One argument of a Windows command line: quoted when it needs to be, with the
+/// backslashes before a quote doubled the way the CRT's parser expects.
+std::string quote_arg(const std::string& arg) {
+    if (!arg.empty() && arg.find_first_of(" \t\"") == std::string::npos) {
+        return arg;
+    }
+    std::string quoted = "\"";
+    size_t backslashes = 0;
+    for (const char ch : arg) {
+        if (ch == '\\') {
+            ++backslashes;
+            continue;
+        }
+        if (ch == '"') {
+            quoted.append(backslashes * 2 + 1, '\\');
+            quoted += '"';
+            backslashes = 0;
+            continue;
+        }
+        quoted.append(backslashes, '\\');
+        backslashes = 0;
+        quoted += ch;
+    }
+    quoted.append(backslashes * 2, '\\');
+    quoted += '"';
+    return quoted;
 }
 
 pid_t spawn_process(const std::string& binary, const std::vector<std::string>& args,
                     const std::string& log_path) {
+#ifdef _WIN32
+    // No fork/exec: one CreateProcess, with the seat's stdout and stderr going
+    // straight into its log file.
+    std::string command = quote_arg(binary);
+    for (const auto& arg : args) {
+        command += " " + quote_arg(arg);
+    }
+    SECURITY_ATTRIBUTES inherit {sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+    HANDLE log = CreateFileA(log_path.c_str(), FILE_APPEND_DATA,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit, CREATE_ALWAYS,
+                             FILE_ATTRIBUTE_NORMAL, nullptr);
+    STARTUPINFOA startup {};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdOutput = log;
+    startup.hStdError = log;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    PROCESS_INFORMATION process {};
+    const BOOL started = CreateProcessA(
+        nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr,
+        &startup, &process);
+    if (log != INVALID_HANDLE_VALUE) {
+        CloseHandle(log);
+    }
+    if (!started) {
+        return -1;
+    }
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess); // terminate() reopens it from the pid
+    return static_cast<pid_t>(process.dwProcessId);
+#else
     const pid_t pid = fork();
     if (pid < 0) {
         return -1;
@@ -399,18 +560,29 @@ pid_t spawn_process(const std::string& binary, const std::vector<std::string>& a
         _exit(127);
     }
     return pid;
+#endif
 }
 
 void terminate(pid_t& pid) {
     if (pid <= 0) {
         return;
     }
+#ifdef _WIN32
+    HANDLE process = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, static_cast<DWORD>(pid));
+    if (process != nullptr) {
+        TerminateProcess(process, 0);
+        WaitForSingleObject(process, 3000);
+        CloseHandle(process);
+    }
+    pid = -1;
+#else
     kill(-pid, SIGTERM);
     kill(pid, SIGKILL);
     int status = 0;
     waitpid(pid, &status, 0);
     kill(-pid, SIGKILL);
     pid = -1;
+#endif
 }
 
 void send_input(Seat& seat, uint8_t type, uint32_t key, uint16_t x, uint16_t y) {
@@ -422,6 +594,26 @@ void send_input(Seat& seat, uint8_t type, uint32_t key, uint16_t x, uint16_t y) 
     message.key = key;
     message.x = x;
     message.y = y;
+#ifdef _WIN32
+    // A datagram to the seat's loopback port: Windows' stand-in for the unix
+    // datagram socket, and non-blocking for free.
+    const auto colon = seat.socket_path.find(':');
+    if (colon == std::string::npos) {
+        return;
+    }
+    ensure_winsock();
+    sockaddr_in address {};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(static_cast<u_short>(std::stoi(seat.socket_path.substr(colon + 1))));
+    const socket_t fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd == kInvalidSocket) {
+        return;
+    }
+    sendto(fd, reinterpret_cast<const char*>(&message), sizeof(message), 0,
+           reinterpret_cast<sockaddr*>(&address), sizeof(address));
+    close_socket(fd);
+#else
     sockaddr_un address {};
     address.sun_family = AF_UNIX;
     if (seat.socket_path.size() >= sizeof(address.sun_path)) {
@@ -436,6 +628,7 @@ void send_input(Seat& seat, uint8_t type, uint32_t key, uint16_t x, uint16_t y) 
     sendto(fd, &message, sizeof(message), MSG_DONTWAIT,
            reinterpret_cast<sockaddr*>(&address), sizeof(address));
     close(fd);
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -477,7 +670,47 @@ const PadKey kPadKeys[] = {
 constexpr unsigned kPeekButton = RETRO_DEVICE_ID_JOYPAD_L;
 constexpr unsigned kTapButton = RETRO_DEVICE_ID_JOYPAD_R3;
 
+#ifdef _WIN32
+void close_mapping(HANDLE& handle, uint8_t*& base, size_t& size) {
+    if (base != nullptr) {
+        UnmapViewOfFile(base);
+        base = nullptr;
+    }
+    if (handle != nullptr) {
+        CloseHandle(handle);
+        handle = nullptr;
+    }
+    size = 0;
+}
+
+/// Open the named file mapping a seat created, read-only, and hand back its
+/// view. Windows rounds a mapping up to a 64 KiB granule, so the size is only a
+/// bound: the header's own dimensions say what is live.
+bool open_mapping(const std::string& name, HANDLE& handle, uint8_t*& base, size_t& size) {
+    close_mapping(handle, base, size);
+    handle = OpenFileMappingA(FILE_MAP_READ, FALSE, ("Local\\" + name).c_str());
+    if (handle == nullptr) {
+        return false;
+    }
+    void* view = MapViewOfFile(handle, FILE_MAP_READ, 0, 0, 0);
+    if (view == nullptr) {
+        CloseHandle(handle);
+        handle = nullptr;
+        return false;
+    }
+    MEMORY_BASIC_INFORMATION region {};
+    size = VirtualQuery(view, &region, sizeof(region)) == 0 ? 0 : region.RegionSize;
+    base = static_cast<uint8_t*>(view);
+    return size >= kHeaderBytes;
+}
+#endif
+
 bool open_ring(Seat& seat) {
+#ifdef _WIN32
+    if (!open_mapping(seat.ring_name, seat.map_handle, seat.base, seat.size)) {
+        return false;
+    }
+#else
     const std::string name = "/" + seat.ring_name;
     const int fd = shm_open(name.c_str(), O_RDONLY, 0);
     if (fd < 0) {
@@ -494,15 +727,23 @@ bool open_ring(Seat& seat) {
         close(fd);
         return false;
     }
-    const auto* header = reinterpret_cast<const RingHeader*>(base);
-    if (header->magic != kMagic || header->width == 0 || header->height == 0) {
-        munmap(base, static_cast<size_t>(info.st_size));
-        close(fd);
-        return false;
-    }
     seat.fd = fd;
     seat.base = base;
     seat.size = static_cast<size_t>(info.st_size);
+#endif
+    const auto* header = reinterpret_cast<const RingHeader*>(seat.base);
+    if (header->magic != kMagic || header->width == 0 || header->height == 0) {
+#ifdef _WIN32
+        close_mapping(seat.map_handle, seat.base, seat.size);
+#else
+        munmap(seat.base, seat.size);
+        close(seat.fd);
+        seat.fd = -1;
+        seat.base = nullptr;
+        seat.size = 0;
+#endif
+        return false;
+    }
     seat.width = header->width;
     seat.height = header->height;
     seat.stride = header->stride;
@@ -513,6 +754,9 @@ bool open_ring(Seat& seat) {
 
 void close_rings() {
     for (auto& seat : seats) {
+#ifdef _WIN32
+        close_mapping(seat.map_handle, seat.base, seat.size);
+#else
         if (seat.base != nullptr) {
             munmap(seat.base, seat.size);
             seat.base = nullptr;
@@ -521,12 +765,16 @@ void close_rings() {
             close(seat.fd);
             seat.fd = -1;
         }
+#endif
         seat.last_seq = 0;
     }
 }
 
 void close_audio_rings() {
     for (auto& seat : seats) {
+#ifdef _WIN32
+        close_mapping(seat.audio_map_handle, seat.audio_base, seat.audio_size);
+#else
         if (seat.audio_base != nullptr) {
             munmap(seat.audio_base, seat.audio_size);
             seat.audio_base = nullptr;
@@ -535,6 +783,7 @@ void close_audio_rings() {
             close(seat.audio_fd);
             seat.audio_fd = -1;
         }
+#endif
         seat.audio_size = 0;
         seat.audio_capacity = 0;
         seat.audio_read = 0;
@@ -546,6 +795,12 @@ bool open_audio_ring(Seat& seat) {
     if (seat.audio_base != nullptr || seat.audio_ring_name.empty()) {
         return seat.audio_base != nullptr;
     }
+#ifdef _WIN32
+    if (!open_mapping(seat.audio_ring_name, seat.audio_map_handle, seat.audio_base,
+                      seat.audio_size)) {
+        return false;
+    }
+#else
     const int fd = shm_open(("/" + seat.audio_ring_name).c_str(), O_RDONLY, 0);
     if (fd < 0) {
         return false;
@@ -561,15 +816,23 @@ bool open_audio_ring(Seat& seat) {
         close(fd);
         return false;
     }
-    const auto* header = reinterpret_cast<const AudioRingHeader*>(base);
-    if (header->magic != kAudioMagic || header->channels != 2 || header->capacity_frames == 0) {
-        munmap(base, static_cast<size_t>(info.st_size));
-        close(fd);
-        return false;
-    }
     seat.audio_fd = fd;
     seat.audio_base = base;
     seat.audio_size = static_cast<size_t>(info.st_size);
+#endif
+    const auto* header = reinterpret_cast<const AudioRingHeader*>(seat.audio_base);
+    if (header->magic != kAudioMagic || header->channels != 2 || header->capacity_frames == 0) {
+#ifdef _WIN32
+        close_mapping(seat.audio_map_handle, seat.audio_base, seat.audio_size);
+#else
+        munmap(seat.audio_base, seat.audio_size);
+        close(seat.audio_fd);
+        seat.audio_fd = -1;
+        seat.audio_base = nullptr;
+        seat.audio_size = 0;
+#endif
+        return false;
+    }
     seat.audio_capacity = header->capacity_frames;
     return true;
 }
@@ -607,6 +870,7 @@ size_t pull_audio(Seat& seat, int32_t* mix, size_t frames, float gain) {
 void stop_session() {
     for (auto& seat : seats) {
         terminate(seat.pid);
+#ifndef _WIN32
         if (!seat.socket_path.empty()) {
             unlink(seat.socket_path.c_str());
         }
@@ -616,6 +880,7 @@ void stop_session() {
         if (!seat.audio_ring_name.empty()) {
             shm_unlink(("/" + seat.audio_ring_name).c_str());
         }
+#endif
     }
     close_rings();
     close_audio_rings();
@@ -624,8 +889,9 @@ void stop_session() {
 }
 
 uint16_t free_udp_port() {
-    const int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) {
+    ensure_winsock();
+    const socket_t fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd == kInvalidSocket) {
         return 24872;
     }
     sockaddr_in address {};
@@ -638,7 +904,7 @@ uint16_t free_udp_port() {
         getsockname(fd, reinterpret_cast<sockaddr*>(&address), &length) == 0) {
         port = ntohs(address.sin_port);
     }
-    close(fd);
+    close_socket(fd);
     return port;
 }
 
@@ -651,15 +917,15 @@ bool start_session(int players) {
         return false;
     }
     const std::string emulator = emulator_path(install_dir);
-    const std::string room_bin = dirname_of(emulator) + "/azahar-room";
-    if (access(room_bin.c_str(), X_OK) != 0) {
+    const std::string room_bin = dirname_of(emulator) + "/" + kRoomName;
+    if (!executable(room_bin)) {
         failure = "azahar-room is missing from the Azahar folder (" + dirname_of(emulator) + ")";
         return false;
     }
 
     session_dir = save_dir() + "/azahar-splitscreen";
-    mkdir(save_dir().c_str(), 0755);
-    mkdir(session_dir.c_str(), 0755);
+    make_dir(save_dir());
+    make_dir(session_dir);
 
     const uint16_t port = free_udp_port();
     const std::string room_log = session_dir + "/room.log";
@@ -671,23 +937,28 @@ bool start_session(int players) {
         failure = "could not start azahar-room";
         return false;
     }
-    usleep(700 * 1000); // the room needs to bind before the seats join
+    sleep_ms(700); // the room needs to bind before the seats join
 
     seats.resize(players);
-    const int session_pid = static_cast<int>(getpid());
+    const int session_pid = current_pid();
     for (int index = 0; index < players; ++index) {
         Seat& seat = seats[index];
         const std::string name = "Player " + std::to_string(index + 1);
         const std::string suffix = std::to_string(session_pid) + "-" + std::to_string(index + 1);
         seat.ring_name = "azsh-" + suffix;
         seat.audio_ring_name = "azsh-audio-" + suffix;
+#ifdef _WIN32
+        // A loopback datagram port stands in for the unix datagram socket.
+        seat.socket_path = "127.0.0.1:" + std::to_string(free_udp_port());
+#else
         seat.socket_path = session_dir + "/" + name + ".sock";
+#endif
         seat.user_dir = session_dir + "/p" + std::to_string(index + 1);
         seat.log_path = session_dir + "/" + name + ".log";
         seat.log_label = name + ".log";
         seat.started = now_seconds();
         seat.last_probe = seat.started;
-        mkdir(seat.user_dir.c_str(), 0755);
+        make_dir(seat.user_dir);
         seat.pid = spawn_process(
             emulator,
             {"--user", seat.user_dir, "--shm-frame", seat.ring_name, "--shm-audio",
@@ -943,10 +1214,24 @@ void probe_seat(Seat& seat, int index) {
         return;
     }
     if (seat.pid > 0) {
+        bool exited = false;
+        int code = 0;
+#ifdef _WIN32
+        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE,
+                                     static_cast<DWORD>(seat.pid));
+        if (process != nullptr) {
+            DWORD status = STILL_ACTIVE;
+            exited = WaitForSingleObject(process, 0) == WAIT_OBJECT_0 &&
+                     GetExitCodeProcess(process, &status) != 0;
+            code = static_cast<int>(status);
+            CloseHandle(process);
+        }
+#else
         int status = 0;
-        const pid_t done = waitpid(seat.pid, &status, WNOHANG);
-        if (done == seat.pid) {
-            const int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+        exited = waitpid(seat.pid, &status, WNOHANG) == seat.pid;
+        code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+#endif
+        if (exited) {
             seat.pid = -1; // reaped: nothing left to signal
             fail("PLAYER " + std::to_string(index + 1) + " EXITED (CODE " + std::to_string(code) +
                  ") BEFORE ITS FIRST FRAME. SEE " + seat.log_label + ".");
@@ -967,8 +1252,6 @@ bool grab_frame(Seat& seat) {
     if (seq == 0 || seq == seat.last_seq) {
         return false;
     }
-    const uint32_t slot = static_cast<uint32_t>((seq - 1) % seat.slot_count);
-    const uint8_t* source = seat.base + kHeaderBytes + static_cast<size_t>(slot) * seat.slot_bytes;
     const uint64_t after = __atomic_load_n(&header->seq, __ATOMIC_ACQUIRE);
     if (after != seq) {
         return false; // writer moved on mid-read: skip rather than tear
@@ -1283,7 +1566,7 @@ bool retro_load_game(const retro_game_info* info) {
         // RetroArch normally hands over a path; a frontend that only supplies
         // bytes gets them written beside the other session state.
         rom_path = save_dir() + "/azahar-splitscreen.3ds";
-        mkdir(save_dir().c_str(), 0755);
+        make_dir(save_dir());
         FILE* file = fopen(rom_path.c_str(), "wb");
         if (file == nullptr) {
             return false;

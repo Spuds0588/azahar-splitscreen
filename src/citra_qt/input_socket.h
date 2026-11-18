@@ -2,8 +2,9 @@
 //
 // A seat that draws into shared memory has no window of its own to receive
 // events, so the viewer forwards keys, touch and the circle pad as 12-byte
-// datagrams to a unix datagram socket this instance owns. See
-// `plans/single-window-shm.md`.
+// datagrams to an endpoint this instance owns: a unix datagram socket on POSIX,
+// and a loopback UDP port on Windows, whose unix-domain sockets are stream-only.
+// See `plans/single-window-shm.md`.
 //
 // Message layout (little-endian):
 //   u8  type   1 = key down, 2 = key up, 3/4/5 = touch down/move/up,
@@ -41,22 +42,36 @@ public:
     InputSocket(const InputSocket&) = delete;
     InputSocket& operator=(const InputSocket&) = delete;
 
-    /// Bind `<path>`, replacing a stale socket left by a crashed session.
+    /// Bind `<path>` - a socket path on POSIX, `host:port` on Windows -
+    /// replacing a stale socket left by a crashed session.
     bool Open(const std::string& path);
     void Close();
 
-    /// True once the socket is bound.
+    /// True once the endpoint is bound.
     bool IsOpen() const {
+#ifdef _WIN32
+        return socket_ != kInvalidSocket;
+#else
         return fd_ >= 0;
+#endif
     }
     int Fd() const {
+#ifdef _WIN32
+        return static_cast<int>(socket_);
+#else
         return fd_;
+#endif
     }
 
     /// Copy pending datagrams into `out`; returns how many were read.
     std::size_t Drain(InputMessage* out, std::size_t capacity);
 
 private:
+#ifdef _WIN32
+    static constexpr std::uintptr_t kInvalidSocket = static_cast<std::uintptr_t>(~0);
+    std::uintptr_t socket_ = kInvalidSocket;
+#else
     int fd_ = -1;
+#endif
     std::string path_;
 };

@@ -357,11 +357,14 @@ touch are playability polish and may slip to Milestone 4.
 - [x] **First windowed session from the owner's own RetroArch** (2026-11-18): the owner booted
       sessions from their installed core and reported back twice - the Mii dialog (54) and the
       audio mix (55) - so the display path is exercised by the person it is for.
-- [ ] **Green CI on master**: format, libretro (linux/windows/android) and android (vanilla) are green
-  (history (60)-(62)); MSVC and MXE need one more run after the `atomic_ref` and inproc-seats fixes,
-  and the `macos-26` lane cannot start until the owner checks Billing -> Actions - Windows/Android `shm_open`,
-  the macOS `__unix__` include guard, and clang-format. Push, then read the macOS, MSVC, MXE, Android
-  and libretro jobs; the format job should be green immediately.
+- [x] **Green CI on master** (2026-11-18): on `63906088e` every code lane passes - mxe, msvc,
+  linux-x86_64 (gcc-nopch, appimage), linux-arm64 (gcc-nopch, clang), android (vanilla),
+  android (googleplay), docker x86_64 + arm64, source, format, and libretro linux/windows/android
+  (history (63)). The five Apple lanes still cancel before a step runs.
+- [ ] **Apple CI lanes**: `build.yml`'s `macos` job and the four libretro Apple jobs are all
+  `runs-on: macos-26` and get no runner on this public repo (free minutes, so it is capacity, not
+  billing). Options: retry and accept the cancel, or move them to `macos-15` (what `release.yml`
+  runs fine) so the lane is actually exercised. Owner's call - it changes what macOS we ship against.
 - [ ] **Windows build of the stack**: the launcher and the seat IPC (frame ring, audio ring, input)
   now have Windows implementations that compile clean with mingw-w64 14 (history (59)), but nothing
   has run there. Next: build Azahar for Windows (Qt 6 + MSVC or mingw), then a Windows archive in

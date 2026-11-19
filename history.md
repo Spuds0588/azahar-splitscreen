@@ -2473,3 +2473,22 @@ minute quota - a macOS minute bills at 10x - so it belongs in Billing -> Actions
 
 Verified locally: POSIX core and the three seat files, the Android paths under `-D__ANDROID__`, and
 clang-format 19.1.7 across `src/` are all clean. The Windows verdicts still need the runners.
+
+## 2026-11-18 (63) - Every code lane is green on 63906088e
+
+The last two blockers fell to `0f5030642` (GCC-atomics fallback where `atomic_ref` is missing) and
+`63906088e` (`static_cast<SOCKET>` for winsock). Full run on `63906088e`:
+
+- **`citra-build`**: mxe, **msvc**, linux-x86_64 (gcc-nopch, appimage), linux-arm64 (gcc-nopch,
+  clang), **android (vanilla)**, android (googleplay), docker x86_64 + arm64, source - all green.
+- **`citra-format`**: green, and it is the version that runs the whitespace `grep` (61), so the
+  trailing-space check has now executed and passed rather than being skipped.
+- **`citra-libretro`**: linux, windows, android green.
+- **Not run**: `macos` plus the four libretro Apple lanes, all `runs-on: macos-26`, all cancelled
+  with zero steps after ~15 minutes queueing. The repo is **public**, so macOS minutes are free -
+  that rules out the billing theory in (62) and leaves GitHub-hosted macOS capacity. The label is
+  valid: one job on `5da6daeba` did get a `macos-26` runner and failed on the `__unix__` guard in
+  `citra_qt.cpp` (`no member named 'ShmAudioRing'`), which `151a7de02` fixed by hoisting the
+  `audio_core/*` includes - so the lane's only evidence still predates the fix.
+
+Nothing in the tree is red now. `macos` reads red only because a cancelled job fails its run.
